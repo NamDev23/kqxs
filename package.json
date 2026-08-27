@@ -14,6 +14,8 @@
     "analyze": "node scripts/product-smoke-test.js",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
+    "db:export": "node scripts/export-database.js",
+    "db:import": "node scripts/import-database.js",
     "crawl": "node scripts/sync-missing-results.js",
     "data:audit": "node scripts/audit-lottery-data.js",
     "data:rebuild": "node scripts/rebuild-lottery-data.js",
