@@ -21,7 +21,7 @@ COPY . .
 # Generate the Prisma client after the schema is present. The dependency stage
 # only copies package manifests, so relying on npm install-time generation makes
 # Prisma models degrade to `any` in a clean Docker build.
-RUN npx prisma generate && npm run build
+RUN mkdir -p public && npx prisma generate && npm run build
 
 # Runner
 FROM base AS runner
