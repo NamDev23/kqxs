@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #126a5b;
+  --secondary: #be4524;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background: #f5f7f3;
+  color: #17211c;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid rgba(18, 106, 91, 0.28);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .research-card {
+    @apply rounded-2xl border border-line bg-panel shadow-card;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.16em] text-accent;
+  }
+
+  .matrix-cell {
+    @apply flex min-h-[72px] flex-col items-center justify-center rounded-xl border border-white/70 px-1 py-2 transition hover:-translate-y-0.5 hover:shadow-sm;
+  }
+}

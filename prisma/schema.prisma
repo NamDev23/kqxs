@@ -1,0 +1,216 @@
+// Prisma Schema for KQXS Analysis Pro
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Kết quả xổ số thực tế
+model LotteryResult {
+  id        String   @id @default(cuid())
+  date      DateTime @unique @db.Date
+  special   String // Giải đặc biệt
+  first     String[] // Giải nhất
+  second    String[] // Giải nhì
+  third     String[] // Giải ba
+  fourth    String[] // Giải tư
+  fifth     String[] // Giải năm
+  sixth     String[] // Giải sáu
+  seventh   String[] // Giải bảy
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
+// Dự đoán hằng ngày
+model Prediction {
+  id            String   @id @default(cuid())
+  date          DateTime @db.Date // Ngày dự đoán cho
+  predictionFor DateTime @db.Date // Dự đoán cho ngày nào
+  revision      Int      @default(1) // Phiên bản snapshot trong cùng ngày
+
+  // Các loại dự đoán
+  de           String[] // Đề
+  lo2          String[] // Lô 2 số
+  lo3          String[] // Lô 3 số
+  bacang       String[] // Bạch thủ 3 càng
+  bachThuLo    String? // Bạch thủ lô 2 số
+  bachThuDe    String? // Bạch thủ đề
+  songthulode  Json // Cặp số [[a,b], [c,d]]
+  dauduoi      Json // {dau: [], duoi: []}
+  sets         Json? // Payload nhóm số đã phát tại thời điểm snapshot
+  singles      Json? // Payload bạch thủ đã phát tại thời điểm snapshot
+  backtest     Json? // Walk-forward tại thời điểm snapshot
+  analysisView Json? // Frequency/hot-cold tại thời điểm snapshot
+  dataQuality  Json? // Chất lượng dữ liệu tại thời điểm snapshot
+  modelMeta    Json? // Metadata mô hình tại thời điểm snapshot
+  snapshotHash String? // Hash để phát hiện drift/revision
+
+  // Metadata
+  method     String // Phương pháp phân tích
+  dataPoints Int // Số kỳ đã phân tích
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relation to accuracy
+  accuracy    AccuracyRecord?
+  evaluations PredictionEvaluation[]
+
+  @@unique([date, predictionFor, revision])
+  @@index([date, predictionFor])
+  @@index([predictionFor])
+}
+
+// Kết quả thực tế theo từng snapshot × từng nhánh. Bảng này giữ nguyên
+// metadata tại thời điểm phát để theo dõi model/profile/status ngoài mẫu.
+model PredictionEvaluation {
+  id           String     @id @default(cuid())
+  predictionId String
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  date             DateTime @db.Date
+  snapshotDate     DateTime @db.Date
+  kind             String
+  scope            String
+  method           String
+  modelProfile     String?
+  edgeStatus       String?
+  metricName       String
+  issuedAt         DateTime
+  issuedBeforeDraw Boolean
+
+  predictedNumbers String[]
+  actualNumbers    String[]
+  hitNumbers       String[]
+  pickCount        Int
+  hitCount         Int
+  isHit            Boolean
+  metricValue      Float
+  precision        Float
+  baseline         Float
+  realizedLift     Float
+
+  predictedProbability Float?
+  backtestMetric       Float?
+  backtestBaseline     Float?
+  backtestLift         Float?
+  temporalStability    Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([predictionId, kind])
+  @@index([date, kind, issuedBeforeDraw])
+  @@index([method, modelProfile, kind])
+  @@index([edgeStatus, date])
+}
+
+// Tracking độ chính xác
+model AccuracyRecord {
+  id           String     @id @default(cuid())
+  predictionId String     @unique
+  prediction   Prediction @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+
+  date DateTime @db.Date
+
+  // Accuracy metrics
+  deAccuracy        Float // % đúng cho Đề
+  lo2Accuracy       Float // % đúng cho Lô 2
+  lo3Accuracy       Float // % đúng cho Lô 3
+  bacangAccuracy    Float // % đúng cho 3 càng
+  overallAccuracy   Float // Tổng thể
+  bachThuLoAccuracy Float?
+  bachThuDeAccuracy Float?
+
+  // Chi tiết
+  deCorrect        Int
+  deTotal          Int
+  lo2Correct       Int
+  lo2Total         Int
+  lo3Correct       Int
+  lo3Total         Int
+  bachThuLoCorrect Int?
+  bachThuDeCorrect Int?
+
+  verified   Boolean   @default(false)
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+}
+
+// Báo cáo học sau khi có kết quả thật
+model DailyLearningReport {
+  id              String   @id @default(cuid())
+  date            DateTime @unique @db.Date
+  resultSpecial   String
+  predictionCount Int
+  summary         Json
+  byPrediction    Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([date])
+}
+
+// Biên bản review định kỳ: kết hợp live outcomes với stability backtest.
+// Decision được lưu lại để việc promote model có audit trail.
+model ModelReview {
+  id               String   @id @default(cuid())
+  reviewDate       DateTime @db.Date
+  method           String
+  dataThrough      DateTime @db.Date
+  liveDays         Int
+  status           String
+  decision         String
+  liveMetrics      Json
+  stabilityMetrics Json
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([reviewDate, method])
+  @@index([method, reviewDate])
+}
+
+// Thống kê tổng thể
+model SystemStats {
+  id   String   @id @default(cuid())
+  date DateTime @db.Date
+
+  totalPredictions   Int
+  correctPredictions Int
+  overallAccuracy    Float
+
+  // Accuracy by type
+  deAccuracy     Float
+  lo2Accuracy    Float
+  lo3Accuracy    Float
+  bacangAccuracy Float
+
+  // Trends
+  last7DaysAccuracy  Float
+  last30DaysAccuracy Float
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([date])
+}
+
+// Log hoạt động hệ thống
+model SystemLog {
+  id        String   @id @default(cuid())
+  type      String // 'crawl', 'analyze', 'error'
+  message   String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+}
