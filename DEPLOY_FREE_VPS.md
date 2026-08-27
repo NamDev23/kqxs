@@ -18,16 +18,12 @@ Phương án dự phòng là Google Cloud Free Tier `e2-micro`, nhưng VM chỉ 
 
 Tạo Ubuntu 24.04 ARM64 trên Oracle A1. Chỉ mở SSH từ IP quản trị. Cài Docker Engine và Compose plugin theo [hướng dẫn Docker chính thức](https://docs.docker.com/compose/install/linux/).
 
-Chuyển source lên `/opt/kqxs`. Không chuyển `.env`, `.next`, `node_modules`, `logs` hoặc `backups` từ máy local. Nếu chưa có Git remote, có thể dùng `rsync` từ máy local:
+Clone source vào `/home/kqxs`. Không chuyển `.env`, `.next`, `node_modules`, `logs` hoặc `backups` từ máy local:
 
 ```bash
-rsync -az \
-  --exclude .env \
-  --exclude .next \
-  --exclude node_modules \
-  --exclude logs \
-  --exclude backups \
-  /Volumes/Namdev23/kqxs/ ubuntu@VPS_IP:/opt/kqxs/
+cd /home
+git clone git@github.com:NamDev23/kqxs.git
+cd /home/kqxs
 ```
 
 ## 2. Cấu hình bí mật
@@ -35,7 +31,7 @@ rsync -az \
 Trên VPS:
 
 ```bash
-cd /opt/kqxs
+cd /home/kqxs
 cp .env.example .env
 chmod 600 .env
 nano .env
@@ -72,16 +68,32 @@ Tạo bot qua `@BotFather`, gửi một tin nhắn cho bot rồi lấy `chat.id`
 ## 3. Build, đồng bộ dữ liệu và kiểm tra
 
 ```bash
-cd /opt/kqxs
-docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml build
+cd /home/kqxs
 docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml up -d postgres
-docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run db:push
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml build web scheduler
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm --user root scheduler npm run db:push
 docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run daily:sync
 docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run data:audit
-docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm test
 docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run test:telegram
 docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run model:backfill
 docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run model:review
+```
+
+Chạy `npm test`, `npm run typecheck` và `npm run build` ở CI/máy build trước khi push. Image scheduler production được tối giản và không chứa test fixture.
+
+Để chuyển database hiện có mà không chuyển mật khẩu nguồn, xuất/nhập JSON theo cơ chế upsert:
+
+```bash
+# Máy nguồn
+npm run db:export -- --output=/tmp/kqxs-db-export.json
+sha256sum /tmp/kqxs-db-export.json
+scp /tmp/kqxs-db-export.json root@VPS_IP:/root/kqxs-db-export.json
+
+# VPS: kiểm checksum phải trùng trước khi nhập
+sha256sum /root/kqxs-db-export.json
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm --user root \
+  -v /root/kqxs-db-export.json:/tmp/kqxs-db-export.json:ro \
+  scheduler npm run db:import -- --input=/tmp/kqxs-db-export.json
 ```
 
 `daily:sync` có ghi dữ liệu thật vào PostgreSQL và chỉ nhận kỳ được hai nguồn độc lập xác minh. Không tiếp tục deploy nếu `data:audit` hoặc smoke test báo dữ liệu chậm/sai cấu trúc.
@@ -93,12 +105,25 @@ docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm s
 Chạy nội bộ, truy cập qua SSH tunnel:
 
 ```bash
-docker compose up -d web scheduler
-docker compose ps
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml up -d web scheduler
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml ps
 curl http://127.0.0.1:3000/api/health
 ```
 
-### Cách A — HTTPS trực tiếp bằng Caddy
+### Cách A — Nginx đang có sẵn trên VPS
+
+Nếu cổng 80/443 đã được Nginx dùng cho site khác, không bật profile Caddy. Giữ web bind ở loopback và thêm virtual host riêng:
+
+```bash
+sudo install -m 0644 deploy/nginx-kqxs.shadowdev.vn.conf /etc/nginx/sites-available/kqxs.shadowdev.vn
+sudo ln -s /etc/nginx/sites-available/kqxs.shadowdev.vn /etc/nginx/sites-enabled/kqxs.shadowdev.vn
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot --nginx -d kqxs.shadowdev.vn --redirect
+curl -fsS https://kqxs.shadowdev.vn/api/health
+```
+
+### Cách B — HTTPS trực tiếp bằng Caddy
 
 Tạo DNS `A` cho `kqxs.shadowdev.vn` trỏ về IPv4 VPS (và `AAAA` nếu VPS có IPv6), rồi mở inbound TCP `80`, TCP/UDP `443`:
 
@@ -109,7 +134,7 @@ curl -fsS https://kqxs.shadowdev.vn/api/health
 
 Caddy tự xin và gia hạn TLS. Không mở port `3000` ra Internet; web vẫn bind loopback trên host và Caddy truy cập qua Docker network.
 
-### Cách B — Cloudflare Tunnel
+### Cách C — Cloudflare Tunnel
 
 Bật Cloudflare Tunnel sau khi tạo tunnel/hostname `kqxs.shadowdev.vn` trong dashboard và điền token:
 
@@ -139,10 +164,11 @@ Pipeline gửi tối đa một báo cáo cho cùng `resultDate + targetDate + sn
 Sau mỗi lần cập nhật code:
 
 ```bash
-docker compose build
-docker compose up -d
-docker image prune -f
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml build web scheduler
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml up -d web scheduler
 ```
+
+Trên VPS dùng chung, không chạy `docker image prune` toàn cục vì có thể xóa cache/image của dịch vụ khác. Chỉ dọn image của dự án sau khi đã liệt kê và xác nhận đúng target.
 
 Sao lưu định kỳ PostgreSQL ở nơi khác VPS. VPS miễn phí không phải lớp lưu trữ duy nhất.
 
