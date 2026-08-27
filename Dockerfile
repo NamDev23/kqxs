@@ -18,13 +18,16 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN npm run build
+# Generate the Prisma client after the schema is present. The dependency stage
+# only copies package manifests, so relying on npm install-time generation makes
+# Prisma models degrade to `any` in a clean Docker build.
+RUN npx prisma generate && npm run build
 
 # Runner
 FROM base AS runner
 WORKDIR /app
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
@@ -37,8 +40,8 @@ USER nextjs
 
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1
@@ -48,7 +51,7 @@ CMD ["node", "server.js"]
 FROM deps AS scheduler
 WORKDIR /app
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 COPY package*.json ./
 COPY prisma ./prisma
