@@ -54,6 +54,17 @@ TELEGRAM_MIN_EDGE_STATUS=qualified
 TELEGRAM_SILENT=false
 ```
 
+Khi PostgreSQL chạy ngay trên VPS bằng file override `deploy/docker-compose.vps.yml`, thêm:
+
+```dotenv
+POSTGRES_USER=kqxs
+POSTGRES_PASSWORD=<mật-khẩu-ngẫu-nhiên-dài>
+POSTGRES_DB=kqxs
+DATABASE_URL="postgresql://kqxs:<cùng-mật-khẩu>@postgres:5432/kqxs?schema=public"
+```
+
+Không publish port `5432`; chỉ `web` và `scheduler` trong Docker network được kết nối.
+
 `qualified` là mặc định an toàn: chỉ gửi số khi CI95/lift/sample gate đều đạt. Nếu đặt `watch`, bot sẽ gửi cả tín hiệu yếu và luôn gắn cảnh báo; không nên dùng `research_only` để ra quyết định.
 
 Tạo bot qua `@BotFather`, gửi một tin nhắn cho bot rồi lấy `chat.id` từ `getUpdates`. Token phải được giữ như mật khẩu. Tham khảo [Telegram bot tutorial](https://core.telegram.org/bots/tutorial) và [Bot API](https://core.telegram.org/bots/api).
@@ -62,14 +73,15 @@ Tạo bot qua `@BotFather`, gửi một tin nhắn cho bot rồi lấy `chat.id`
 
 ```bash
 cd /opt/kqxs
-docker compose build
-docker compose run --rm scheduler npm run db:push
-docker compose run --rm scheduler npm run daily:sync
-docker compose run --rm scheduler npm run data:audit
-docker compose run --rm scheduler npm test
-docker compose run --rm scheduler npm run test:telegram
-docker compose run --rm scheduler npm run model:backfill
-docker compose run --rm scheduler npm run model:review
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml build
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml up -d postgres
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run db:push
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run daily:sync
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run data:audit
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm test
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run test:telegram
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run model:backfill
+docker compose -f docker-compose.yml -f deploy/docker-compose.vps.yml run --rm scheduler npm run model:review
 ```
 
 `daily:sync` có ghi dữ liệu thật vào PostgreSQL và chỉ nhận kỳ được hai nguồn độc lập xác minh. Không tiếp tục deploy nếu `data:audit` hoặc smoke test báo dữ liệu chậm/sai cấu trúc.
