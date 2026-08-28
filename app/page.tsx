@@ -7,6 +7,7 @@ import FrequencyChart from '@/components/FrequencyChart';
 import HotColdNumbers from '@/components/HotColdNumbers';
 import PredictionLedger from '@/components/PredictionLedger';
 import NumberResearchMatrix from '@/components/NumberResearchMatrix';
+import LegalLotteryROI from '@/components/LegalLotteryROI';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type View = 'signals' | 'statistics' | 'validation' | 'ledger';
@@ -21,6 +22,7 @@ const VIEWS: Array<{ key: View; label: string; description: string }> = [
 export default function Home() {
   const [dailyData, setDailyData] = useState<any>(null);
   const [ledgerData, setLedgerData] = useState<any>({ data: [], pagination: null });
+  const [legalRoiData, setLegalRoiData] = useState<any>(null);
   const [state, setState] = useState<LoadState>('loading');
   const [error, setError] = useState('');
   const [view, setView] = useState<View>('signals');
@@ -30,15 +32,17 @@ export default function Home() {
 
     Promise.all([
       fetchJson('/api/realtime-prediction'),
-      fetchJson('/api/prediction-ledger?page=1&pageSize=8')
+      fetchJson('/api/prediction-ledger?page=1&pageSize=8'),
+      fetchJson('/api/legal-roi?days=90').catch(() => ({ success: false }))
     ])
-      .then(([daily, ledger]) => {
+      .then(([daily, ledger, legalRoi]) => {
         if (!mounted) return;
         if (!daily.success || !ledger.success) {
           throw new Error(daily.error || ledger.error || 'Không thể tải dữ liệu');
         }
         setDailyData(daily.data);
         setLedgerData({ data: ledger.data ?? [], pagination: ledger.pagination ?? null });
+        setLegalRoiData(legalRoi.success ? legalRoi : null);
         setState('ready');
       })
       .catch((reason) => {
@@ -124,6 +128,7 @@ export default function Home() {
 
           {view === 'validation' && (
             <div className="space-y-5">
+              <LegalLotteryROI report={legalRoiData} />
               <AccuracyTracker
                 historicalAccuracy={dailyData.accuracy?.historicalAccuracy ?? 0}
                 randomBaseline={dailyData.accuracy?.randomBaseline ?? 0}

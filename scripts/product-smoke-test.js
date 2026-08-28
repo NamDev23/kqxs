@@ -10,6 +10,11 @@ const {
 } = require('../lib/product-prediction-engine.ts');
 const { validateResult } = require('../crawler/xsmb-source-crawler');
 const { buildModelOutcomeMonitor } = require('../lib/model-outcome-monitor.ts');
+const {
+  settleOfficialLoto2,
+  settleOfficialLoto3,
+  settleOfficialPairs
+} = require('../lib/legal-lottery-products.ts');
 
 const env = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8') : '';
 const match = env.match(/^DATABASE_URL\s*=\s*"?([^"\n]+)"?/m);
@@ -157,6 +162,23 @@ async function main() {
     predictedProbability: 25
   })));
   assert(monitorFixture.status === 'review', 'Live monitor must flag a mature below-baseline model');
+
+  const officialFixture = {
+    date: '2026-01-01',
+    special: '12345',
+    first: ['54345'],
+    second: ['10011', '20011'],
+    third: ['30022', '40022', '50033', '60033', '70044', '80044'],
+    fourth: ['1000', '2000', '3000', '4000'],
+    fifth: ['1000', '2000', '3000', '4000', '5000', '6000'],
+    sixth: ['345', '222', '333'],
+    seventh: ['01', '02', '03', '04']
+  };
+  assert(settleOfficialLoto2(['45'], officialFixture).payoutUnits === 71, 'Official Lô tô 2 payout must be 70x + 1x');
+  assert(settleOfficialLoto3(['345'], officialFixture).payoutUnits === 445, 'Official Lô tô 3 combined payout must be 445x');
+  assert(settleOfficialPairs('xien2', [{ numbers: ['45', '11'] }], officialFixture).payoutUnits === 15, 'Official 2-pair repeated payout must be 15x');
+  assert(settleOfficialPairs('xien3', [{ numbers: ['45', '11', '22'] }], officialFixture).payoutUnits === 60, 'Official 3-pair repeated payout must be 60x');
+  assert(settleOfficialPairs('xien4', [{ numbers: ['45', '11', '22', '33'] }], officialFixture).payoutUnits === 1000, 'Official 4-pair repeated payout must be 1000x');
 
   console.log(JSON.stringify({
     ok: true,
