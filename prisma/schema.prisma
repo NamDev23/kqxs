@@ -42,6 +42,7 @@ model Prediction {
   bachThuLo    String? // Bạch thủ lô 2 số
   bachThuDe    String? // Bạch thủ đề
   songthulode  Json // Cặp số [[a,b], [c,d]]
+  combinations Json? // Xiên 2/3/4 cùng metadata walk-forward
   dauduoi      Json // {dau: [], duoi: []}
   sets         Json? // Payload nhóm số đã phát tại thời điểm snapshot
   singles      Json? // Payload bạch thủ đã phát tại thời điểm snapshot

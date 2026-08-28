@@ -12,6 +12,7 @@ export interface SnapshotRecordLike {
   bachThuLo?: string | null;
   bachThuDe?: string | null;
   songthulode: unknown;
+  combinations?: unknown;
   dauduoi: unknown;
   sets?: unknown;
   singles?: unknown;
@@ -41,6 +42,7 @@ export function buildPredictionRecordData(
     bachThuLo: analysis.prediction.bachThuLo,
     bachThuDe: analysis.prediction.bachThuDe,
     songthulode: toJson(analysis.prediction.songthulode),
+    combinations: toJson(analysis.prediction.combinations),
     dauduoi: toJson(analysis.prediction.dauduoi),
     sets: toJson(analysis.sets),
     singles: toJson(analysis.singles),
@@ -83,6 +85,7 @@ export function materializePredictionSnapshot(record: SnapshotRecordLike, fallba
       bachThuLo: record.bachThuLo ?? record.lo2?.[0] ?? fallback.prediction.bachThuLo,
       bachThuDe: record.bachThuDe ?? record.de?.[0] ?? fallback.prediction.bachThuDe,
       songthulode: parseJsonField(record.songthulode, fallback.prediction.songthulode),
+      combinations: parseJsonField(record.combinations, fallback.prediction.combinations),
       dauduoi: parseJsonField(record.dauduoi, fallback.prediction.dauduoi)
     },
     sets: parseJsonField(record.sets, fallback.sets),

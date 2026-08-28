@@ -72,11 +72,11 @@ function lotteryResultData(row) {
 
 function predictionData(row) {
   return omitNullJson(pick(row, [
-    'revision', 'de', 'lo2', 'lo3', 'bacang', 'bachThuLo', 'bachThuDe', 'songthulode',
+    'revision', 'de', 'lo2', 'lo3', 'bacang', 'bachThuLo', 'bachThuDe', 'songthulode', 'combinations',
     'dauduoi', 'sets', 'singles', 'backtest', 'analysisView', 'dataQuality', 'modelMeta',
     'snapshotHash', 'method', 'dataPoints'
   ], { date: date(row.date), predictionFor: date(row.predictionFor) }), [
-    'sets', 'singles', 'backtest', 'analysisView', 'dataQuality', 'modelMeta'
+    'combinations', 'sets', 'singles', 'backtest', 'analysisView', 'dataQuality', 'modelMeta'
   ]);
 }
 

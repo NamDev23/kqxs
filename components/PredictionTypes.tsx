@@ -1,6 +1,6 @@
 'use client';
 
-import type { EdgeStatus, PredictionKind, PredictionSet, SinglePick, SinglePickKind } from '@/lib/product-prediction-engine';
+import type { CombinationKind, CombinationSet, EdgeStatus, PredictionKind, PredictionSet, SinglePick, SinglePickKind } from '@/lib/product-prediction-engine';
 
 interface Props {
   prediction: {
@@ -11,6 +11,7 @@ interface Props {
     bachThuLo?: string;
     bachThuDe?: string;
     songthulode?: string[][];
+    combinations?: Partial<Record<CombinationKind, CombinationSet>>;
     dauduoi?: { dau: string[]; duoi: string[] };
   };
   sets?: Partial<Record<PredictionKind, PredictionSet>>;
@@ -54,6 +55,8 @@ export default function PredictionTypes({ prediction, sets, singles }: Props) {
         />
       ))}
 
+      <CombinationPanel combinations={prediction.combinations} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="mb-4">
@@ -83,6 +86,47 @@ export default function PredictionTypes({ prediction, sets, singles }: Props) {
         </div>
       </div>
     </div>
+  );
+}
+
+function CombinationPanel({ combinations }: { combinations?: Partial<Record<CombinationKind, CombinationSet>> }) {
+  const order: CombinationKind[] = ['xien2', 'xien3', 'xien4'];
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="mb-4">
+        <h3 className="text-lg font-semibold text-slate-950">Tổ hợp xiên có kiểm định</h3>
+        <p className="text-sm text-slate-500">Sinh từ core lô 2, co-occurrence được shrink về baseline; không ghép mọi cặp tần suất cao một cách cơ học.</p>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-3">
+        {order.map((kind) => {
+          const set = combinations?.[kind];
+          const status = set?.edgeStatus ?? 'research_only';
+          return (
+            <div key={kind} className={`rounded-lg border p-4 ${edgeBorder(status)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-semibold text-slate-950">{set?.label ?? kind.toUpperCase()}</h4>
+                <EdgeBadge status={status} label={set?.edgeLabel ?? 'Chưa có dữ liệu'} />
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                <MetricPill label="OOS" value={`${set?.backtestMetric?.toFixed(3) ?? '0.000'}%`} tone={status} />
+                <MetricPill label="Baseline" value={`${set?.backtestBaseline?.toFixed(3) ?? '0.000'}%`} />
+                <MetricPill label="Lift" value={`${set?.backtestLift?.toFixed(2) ?? '0.00'}x`} tone={status} />
+              </div>
+              <div className="mt-3 space-y-2">
+                {(set?.picks ?? []).map((pick, index) => (
+                  <div key={`${kind}-${pick.numbers.join('-')}`} className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-bold tabular-nums text-slate-950">#{index + 1} {pick.numbers.join(' + ')}</div>
+                    <div className="text-right text-[11px] tabular-nums text-slate-500">p {pick.probability.toFixed(3)}% · {pick.observedDays} ngày</div>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-600">{set?.edgeReason ?? 'Snapshot cũ chưa có pipeline xiên.'}</p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

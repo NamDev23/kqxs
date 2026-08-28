@@ -56,11 +56,26 @@ async function main() {
   assert(analysis.analysis.frequency.length === 100, '00-99 matrix is incomplete');
 
   assertNumberList('de', analysis.prediction.de, 10, 2);
-  assertNumberList('lo2', analysis.prediction.lo2, 15, 2);
+  assertNumberList('lo2', analysis.prediction.lo2, 8, 2);
   assertNumberList('lo3', analysis.prediction.lo3, 10, 3);
   assertNumberList('bacang', analysis.prediction.bacang, 5, 3);
   assertSingleNumber('bachThuLo', analysis.prediction.bachThuLo, 2);
   assertSingleNumber('bachThuDe', analysis.prediction.bachThuDe, 2);
+
+  [['xien2', 2, 5], ['xien3', 3, 3], ['xien4', 4, 2]].forEach(([kind, size, pickCount]) => {
+    const combination = analysis.prediction.combinations[kind];
+    assert(combination.kind === kind, `Unexpected combination kind ${combination.kind}`);
+    assert(combination.size === size, `${kind} expected size ${size}`);
+    assert(combination.picks.length === pickCount, `${kind} expected ${pickCount} picks`);
+    assert(combination.testedDraws > 0, `${kind} is missing walk-forward evidence`);
+    assert(Number.isFinite(combination.backtestLift), `${kind} has invalid lift`);
+    assert(['qualified', 'watch', 'research_only'].includes(combination.edgeStatus), `Invalid status for ${kind}`);
+    combination.picks.forEach((pick) => {
+      assertNumberList(kind, pick.numbers, size, 2);
+      assert(new Set(pick.numbers).size === size, `${kind} contains duplicate numbers`);
+      assert(Number.isFinite(pick.probability), `${kind} has invalid probability`);
+    });
+  });
 
   Object.values(analysis.sets).forEach((set) => {
     assert(['qualified', 'watch', 'research_only'].includes(set.edgeStatus), `Invalid edge status for ${set.kind}`);
@@ -110,6 +125,9 @@ async function main() {
     assert(storedSnapshot.revision >= 1, 'Stored snapshot must have a revision');
     assert(storedSnapshot.sets, 'Stored snapshot is missing sets payload');
     assert(storedSnapshot.singles, 'Stored snapshot is missing singles payload');
+    if (storedSnapshot.method === PRODUCT_METHOD) {
+      assert(storedSnapshot.combinations, 'Stored v7 snapshot is missing combinations payload');
+    }
     assert(storedSnapshot.backtest, 'Stored snapshot is missing backtest payload');
     assert(storedSnapshot.analysisView, 'Stored snapshot is missing analysis view payload');
     assert(storedSnapshot.dataQuality, 'Stored snapshot is missing data quality payload');

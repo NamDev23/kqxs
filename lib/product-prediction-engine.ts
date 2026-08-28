@@ -15,6 +15,7 @@ export interface LotteryDraw {
 export type PredictionKind = 'de' | 'lo2' | 'lo3' | 'bacang';
 export type EdgeStatus = 'qualified' | 'watch' | 'research_only';
 export type SinglePickKind = 'bachThuLo' | 'bachThuDe';
+export type CombinationKind = 'xien2' | 'xien3' | 'xien4';
 
 export interface RankedNumber {
   number: string;
@@ -78,6 +79,34 @@ export interface SinglePick {
   temporalStability: BacktestSummary['temporalStability'];
 }
 
+export interface CombinationPick {
+  numbers: string[];
+  probability: number;
+  baseline: number;
+  lift: number;
+  observedDays: number;
+  score: number;
+}
+
+export interface CombinationSet {
+  kind: CombinationKind;
+  label: string;
+  size: 2 | 3 | 4;
+  picks: CombinationPick[];
+  pickCount: number;
+  probability: number;
+  backtestMetric: number;
+  backtestBaseline: number;
+  backtestLift: number;
+  testedDraws: number;
+  hitDays: number;
+  edgeStatus: EdgeStatus;
+  edgeLabel: string;
+  edgeReason: string;
+  modelProfile: string;
+  temporalStability: BacktestSummary['temporalStability'];
+}
+
 export interface BacktestSummary {
   kind: PredictionKind;
   label: string;
@@ -123,6 +152,7 @@ export interface ProductPredictionResult {
     bachThuLo: string;
     bachThuDe: string;
     songthulode: string[][];
+    combinations: Record<CombinationKind, CombinationSet>;
     dauduoi: { dau: string[]; duoi: string[] };
   };
   sets: Record<PredictionKind, PredictionSet>;
@@ -176,6 +206,12 @@ export interface RegisteredProfileComparison {
   label: string;
   summaries: BacktestSummary[];
   aggregate: ProductPredictionResult['backtest']['aggregate'];
+}
+
+export interface PickCountComparison {
+  kind: PredictionKind;
+  pickCount: number;
+  summary: BacktestSummary;
 }
 
 export interface FrequencyRow {
@@ -261,7 +297,7 @@ interface ProfileSelection {
   testedDraws: number;
 }
 
-const PRODUCT_METHOD = 'Product Walk-Forward Ensemble v6';
+const PRODUCT_METHOD = 'Product Walk-Forward Ensemble v7';
 
 const SCORE_PROFILES: ScoreProfile[] = [
   {
@@ -332,7 +368,11 @@ const KIND_CONFIGS: Record<PredictionKind, KindConfig> = {
     label: 'Lô 2 số',
     digits: 2,
     domainSize: 100,
-    pickCount: 15,
+    // Three contiguous 60-draw folds through 2026-08-27: core 8 retained a
+    // positive edge in 3/3 folds (minimum lift 1.05). The wider top 15 remains
+    // available in ranked metadata for coverage research, but is not the
+    // primary published set.
+    pickCount: 8,
     maxHistory: 365,
     recentWindow: 30,
     minTraining: 90,
@@ -413,6 +453,7 @@ export function createProductPrediction(
   );
   const sets = attachBacktestToSets(rawSets, summaries);
   const singles = buildSinglePicks(trainingDraws, targetDate);
+  const combinations = buildCombinationSets(trainingDraws, targetDate, rawSets.lo2.ranked.slice(0, 12));
 
   const aggregate = summarizeBacktests(summaries);
   const prediction = {
@@ -424,6 +465,7 @@ export function createProductPrediction(
     bachThuLo: singles.bachThuLo.number,
     bachThuDe: singles.bachThuDe.number,
     songthulode: buildSongThu(trainingDraws),
+    combinations,
     dauduoi: buildDauDuoi(trainingDraws)
   };
 
@@ -508,6 +550,40 @@ export function compareRegisteredProfiles(
   });
 }
 
+/**
+ * Research helper for pre-registering the size of a published set. The caller
+ * must compare contiguous time folds and must not pick a count from a single
+ * winning day. Production count changes still require an independent live
+ * window after this historical comparison.
+ */
+export function comparePickCounts(
+  rawDraws: LotteryDraw[],
+  kind: PredictionKind,
+  pickCounts: number[],
+  backtestWindow?: number
+): PickCountComparison[] {
+  const draws = normalizeLotteryDraws(rawDraws);
+  const baseConfig = KIND_CONFIGS[kind];
+
+  return Array.from(new Set(pickCounts))
+    .filter((pickCount) => Number.isInteger(pickCount) && pickCount > 0 && pickCount <= baseConfig.domainSize)
+    .sort((left, right) => left - right)
+    .map((pickCount) => {
+      const config = {
+        ...baseConfig,
+        pickCount,
+        backtestWindow: backtestWindow
+          ? Math.max(1, Math.floor(backtestWindow))
+          : baseConfig.backtestWindow
+      };
+      return {
+        kind,
+        pickCount,
+        summary: runWalkForwardBacktest(draws, config, DEFAULT_PROFILE)
+      };
+    });
+}
+
 function buildPredictionSet(
   draws: LotteryDraw[],
   targetDate: string,
@@ -515,9 +591,11 @@ function buildPredictionSet(
 ): PredictionSet {
   const history = draws.slice(-config.maxHistory);
   const profileSelection = selectScoreProfile(history, targetDate, config);
-  const ranked = rankCandidates(history, targetDate, config, profileSelection.profile).slice(0, config.pickCount);
-  const numbers = ranked.map((candidate) => candidate.number);
-  const probability = estimateSetProbability(ranked, config);
+  const rankedLimit = config.kind === 'lo2' ? Math.max(15, config.pickCount) : config.pickCount;
+  const ranked = rankCandidates(history, targetDate, config, profileSelection.profile).slice(0, rankedLimit);
+  const publishedRanked = ranked.slice(0, config.pickCount);
+  const numbers = publishedRanked.map((candidate) => candidate.number);
+  const probability = estimateSetProbability(publishedRanked, config);
   const baselineProbability = baselineForKind(config, history);
 
   return {
@@ -915,6 +993,225 @@ function buildHotCold(draws: LotteryDraw[], kind: PredictionKind, period: number
       .sort((a, b) => a.frequency - b.frequency || a.number.localeCompare(b.number))
       .slice(0, 10)
   };
+}
+
+interface CombinationBacktestResult {
+  metric: number;
+  baseline: number;
+  lift: number;
+  testedDraws: number;
+  hitDays: number;
+  expectedHits: number;
+  status: EdgeStatus;
+  edgeReason: string;
+  temporalStability: BacktestSummary['temporalStability'];
+}
+
+const COMBINATION_CONFIGS: Array<{
+  kind: CombinationKind;
+  label: string;
+  size: 2 | 3 | 4;
+  pickCount: number;
+}> = [
+  { kind: 'xien2', label: 'Xiên 2', size: 2, pickCount: 5 },
+  { kind: 'xien3', label: 'Xiên 3', size: 3, pickCount: 3 },
+  { kind: 'xien4', label: 'Xiên 4', size: 4, pickCount: 2 }
+];
+
+function buildCombinationSets(
+  draws: LotteryDraw[],
+  targetDate: string,
+  lo2Candidates: RankedNumber[]
+): Record<CombinationKind, CombinationSet> {
+  return Object.fromEntries(COMBINATION_CONFIGS.map((config) => {
+    const raw = rankCombinationSet(draws, lo2Candidates, config.size, config.pickCount);
+    const backtest = runCombinationBacktest(draws, targetDate, config.size, config.pickCount);
+    return [config.kind, {
+      kind: config.kind,
+      label: config.label,
+      size: config.size,
+      picks: raw,
+      pickCount: config.pickCount,
+      probability: backtest.metric,
+      backtestMetric: backtest.metric,
+      backtestBaseline: backtest.baseline,
+      backtestLift: backtest.lift,
+      testedDraws: backtest.testedDraws,
+      hitDays: backtest.hitDays,
+      edgeStatus: backtest.status,
+      edgeLabel: edgeLabelFor(backtest.status),
+      edgeReason: backtest.edgeReason,
+      modelProfile: 'shrunk_cooccurrence_v1',
+      temporalStability: backtest.temporalStability
+    } satisfies CombinationSet];
+  })) as Record<CombinationKind, CombinationSet>;
+}
+
+function rankCombinationSet(
+  draws: LotteryDraw[],
+  candidates: RankedNumber[],
+  size: 2 | 3 | 4,
+  pickCount: number
+): CombinationPick[] {
+  const recent = draws.slice(-180);
+  if (recent.length === 0 || candidates.length < size) return [];
+  const actualByDay = recent.map((draw) => actualNumbersForKind(draw, 'lo2'));
+  const baseline = mean(actualByDay.map((actual) => combinationBaseline(actual.size, size)));
+  const priorStrength = 30;
+
+  return combinationsOf(candidates.slice(0, 12), size)
+    .map((rows) => {
+      const numbers = rows.map((row) => row.number).sort();
+      const observedDays = actualByDay.filter((actual) => numbers.every((number) => actual.has(number))).length;
+      const marginalPrior = rows.reduce((product, row) => product * clamp(row.probability / 100, 0.001, 0.95), 1);
+      const prior = clamp((marginalPrior + baseline) / 2, 0.000001, 0.95);
+      const posterior = (observedDays + priorStrength * prior) / (recent.length + priorStrength);
+      const confidence = mean(rows.map((row) => row.score / 100));
+      const lift = safeRatio(posterior, baseline);
+      const score = posterior * (0.75 + confidence * 0.25) * Math.min(1.5, Math.sqrt(Math.max(0.25, lift)));
+      return {
+        numbers,
+        probability: round(posterior * 100, 3),
+        baseline: round(baseline * 100, 3),
+        lift: round(lift, 2),
+        observedDays,
+        score: round(score * 100, 4)
+      };
+    })
+    .sort((left, right) =>
+      right.score - left.score ||
+      right.observedDays - left.observedDays ||
+      left.numbers.join('-').localeCompare(right.numbers.join('-'))
+    )
+    .slice(0, pickCount);
+}
+
+function runCombinationBacktest(
+  draws: LotteryDraw[],
+  targetDate: string,
+  size: 2 | 3 | 4,
+  pickCount: number
+): CombinationBacktestResult {
+  void targetDate;
+  const minTraining = 150;
+  if (draws.length <= minTraining) return emptyCombinationBacktest(size);
+  const start = Math.max(minTraining, draws.length - 180);
+  const modelScores: number[] = [];
+  const baselineScores: number[] = [];
+  let hitDays = 0;
+  let expectedHits = 0;
+
+  for (let index = start; index < draws.length; index += 1) {
+    const target = draws[index];
+    const training = draws.slice(Math.max(0, index - 365), index);
+    const rankedLo2 = rankCandidates(training, target.date, KIND_CONFIGS.lo2, DEFAULT_PROFILE).slice(0, 12);
+    const picks = rankCombinationSet(training, rankedLo2, size, pickCount);
+    const actual = actualNumbersForKind(target, 'lo2');
+    const hits = picks.filter((pick) => pick.numbers.every((number) => actual.has(number))).length;
+    const baseline = combinationBaseline(actual.size, size);
+    modelScores.push(picks.length > 0 ? hits / picks.length : 0);
+    baselineScores.push(baseline);
+    expectedHits += baseline * picks.length;
+    if (hits > 0) hitDays += 1;
+  }
+
+  const testedDraws = modelScores.length;
+  const metric = mean(modelScores);
+  const baseline = mean(baselineScores);
+  const lift = safeRatio(metric, baseline);
+  const validation = validateWalkForwardEdge(modelScores, baselineScores);
+  const rawStability = temporalStabilityFor(modelScores, baselineScores);
+  const temporalStability = {
+    ...rawStability,
+    recentEdge: round(rawStability.recentEdge * 100, 2),
+    minimumEdge: round(rawStability.minimumEdge * 100, 2)
+  };
+  let status: EdgeStatus = 'research_only';
+  if (
+    testedDraws >= 150 && expectedHits >= 8 && hitDays >= 8 && lift >= 1.05 &&
+    validation.edgeInterval.low > 0 && validation.probabilityAboveBaseline >= 0.975 && rawStability.stable
+  ) status = 'qualified';
+  else if (
+    testedDraws >= 120 && expectedHits >= 5 && lift > 1 &&
+    validation.observedEdge > 0 && validation.probabilityAboveBaseline >= 0.9 &&
+    rawStability.windows >= 3 && rawStability.positiveWindows >= 2 && rawStability.recentEdge >= 0
+  ) status = 'watch';
+
+  const metricPercent = round(metric * 100, 3);
+  const baselinePercent = round(baseline * 100, 3);
+  const reason = expectedHits < 5
+    ? `Mẫu xiên ${size} quá mỏng: chỉ ${round(expectedHits, 2)} hit kỳ vọng theo nền trong ${testedDraws} kỳ.`
+    : status === 'qualified'
+      ? `Walk-forward ${testedDraws} kỳ, precision ${metricPercent}%, baseline ${baselinePercent}%, lift ${round(lift, 2)}x.`
+      : `Chưa chứng minh vượt nền bền vững: precision ${metricPercent}%, baseline ${baselinePercent}%, lift ${round(lift, 2)}x; ${rawStability.positiveWindows}/${rawStability.windows} cửa sổ dương.`;
+
+  return {
+    metric: metricPercent,
+    baseline: baselinePercent,
+    lift: round(lift, 2),
+    testedDraws,
+    hitDays,
+    expectedHits: round(expectedHits, 2),
+    status,
+    edgeReason: reason,
+    temporalStability
+  };
+}
+
+function emptyCombinationBacktest(size: 2 | 3 | 4): CombinationBacktestResult {
+  return {
+    metric: 0,
+    baseline: 0,
+    lift: 0,
+    testedDraws: 0,
+    hitDays: 0,
+    expectedHits: 0,
+    status: 'research_only',
+    edgeReason: `Chưa đủ dữ liệu để kiểm định xiên ${size}.`,
+    temporalStability: {
+      windowSize: 0,
+      windows: 0,
+      positiveWindows: 0,
+      recentEdge: 0,
+      minimumEdge: 0,
+      stable: false
+    }
+  };
+}
+
+function combinationsOf<T>(values: T[], size: number): T[][] {
+  const output: T[][] = [];
+  const visit = (start: number, selected: T[]) => {
+    if (selected.length === size) {
+      output.push(selected.slice());
+      return;
+    }
+    for (let index = start; index <= values.length - (size - selected.length); index += 1) {
+      selected.push(values[index]);
+      visit(index + 1, selected);
+      selected.pop();
+    }
+  };
+  visit(0, []);
+  return output;
+}
+
+function combinationBaseline(actualUniqueCount: number, size: number) {
+  if (actualUniqueCount < size) return 0;
+  return safeRatio(binomial(actualUniqueCount, size), binomial(100, size));
+}
+
+function binomial(n: number, k: number) {
+  if (k < 0 || k > n) return 0;
+  let result = 1;
+  for (let index = 1; index <= k; index += 1) {
+    result = (result * (n - k + index)) / index;
+  }
+  return result;
+}
+
+function mean(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
 }
 
 function buildSongThu(draws: LotteryDraw[]): string[][] {

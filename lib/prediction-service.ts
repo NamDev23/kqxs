@@ -223,6 +223,7 @@ function isUsableStoredSnapshot(prediction: any, trainingCount: number) {
     Boolean(prediction.snapshotHash) &&
     Boolean(prediction.sets) &&
     Boolean(prediction.singles) &&
+    Boolean(prediction.combinations) &&
     Boolean(prediction.backtest) &&
     Boolean(prediction.analysisView) &&
     Boolean(prediction.dataQuality) &&
@@ -256,6 +257,11 @@ function analysisFromPredictionRecord(prediction: any): ProductPredictionResult 
       bachThuLo: prediction.bachThuLo ?? prediction.lo2?.[0] ?? '',
       bachThuDe: prediction.bachThuDe ?? prediction.de?.[0] ?? '',
       songthulode: parseJsonField(prediction.songthulode, []),
+      combinations: parseJsonField(prediction.combinations, {
+        xien2: emptyCombinationSet('xien2', 'Xiên 2', 2),
+        xien3: emptyCombinationSet('xien3', 'Xiên 3', 3),
+        xien4: emptyCombinationSet('xien4', 'Xiên 4', 4)
+      }),
       dauduoi: parseJsonField(prediction.dauduoi, { dau: [], duoi: [] })
     },
     sets: parseJsonField(prediction.sets, {} as ProductPredictionResult['sets']),
@@ -294,6 +300,34 @@ function analysisFromPredictionRecord(prediction: any): ProductPredictionResult 
       targetDate: prediction.predictionFor.toISOString().slice(0, 10),
       trainingWindow: prediction.dataPoints
     })
+  };
+}
+
+function emptyCombinationSet(kind: 'xien2' | 'xien3' | 'xien4', label: string, size: 2 | 3 | 4) {
+  return {
+    kind,
+    label,
+    size,
+    picks: [],
+    pickCount: 0,
+    probability: 0,
+    backtestMetric: 0,
+    backtestBaseline: 0,
+    backtestLift: 0,
+    testedDraws: 0,
+    hitDays: 0,
+    edgeStatus: 'research_only' as const,
+    edgeLabel: 'Chưa đủ bằng chứng',
+    edgeReason: 'Snapshot cũ chưa có dữ liệu xiên.',
+    modelProfile: 'legacy',
+    temporalStability: {
+      windowSize: 0,
+      windows: 0,
+      positiveWindows: 0,
+      recentEdge: 0,
+      minimumEdge: 0,
+      stable: false
+    }
   };
 }
 

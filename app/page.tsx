@@ -20,7 +20,7 @@ const VIEWS: Array<{ key: View; label: string; description: string }> = [
 
 export default function Home() {
   const [dailyData, setDailyData] = useState<any>(null);
-  const [ledgerData, setLedgerData] = useState<any[]>([]);
+  const [ledgerData, setLedgerData] = useState<any>({ data: [], pagination: null });
   const [state, setState] = useState<LoadState>('loading');
   const [error, setError] = useState('');
   const [view, setView] = useState<View>('signals');
@@ -30,7 +30,7 @@ export default function Home() {
 
     Promise.all([
       fetchJson('/api/realtime-prediction'),
-      fetchJson('/api/prediction-ledger?days=14')
+      fetchJson('/api/prediction-ledger?page=1&pageSize=8')
     ])
       .then(([daily, ledger]) => {
         if (!mounted) return;
@@ -38,7 +38,7 @@ export default function Home() {
           throw new Error(daily.error || ledger.error || 'Không thể tải dữ liệu');
         }
         setDailyData(daily.data);
-        setLedgerData(ledger.data ?? []);
+        setLedgerData({ data: ledger.data ?? [], pagination: ledger.pagination ?? null });
         setState('ready');
       })
       .catch((reason) => {
@@ -137,7 +137,12 @@ export default function Home() {
             </div>
           )}
 
-          {view === 'ledger' && <PredictionLedger entries={ledgerData} />}
+          {view === 'ledger' && (
+            <PredictionLedger
+              entries={ledgerData.data}
+              initialPagination={ledgerData.pagination}
+            />
+          )}
         </div>
 
         <footer className="mt-8 flex flex-col gap-2 border-t border-line py-6 text-sm leading-6 text-muted md:flex-row md:items-start md:justify-between">

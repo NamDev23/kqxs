@@ -4,16 +4,22 @@ import { dateKey, parseJsonField } from '@/lib/prediction-snapshot';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const days = clampNumber(Number(req.query.days ?? 14), 1, 90);
-    const predictions = await prisma.prediction.findMany({
-      include: { accuracy: true, evaluations: true },
-      orderBy: [
-        { predictionFor: 'desc' },
-        { date: 'desc' },
-        { revision: 'desc' }
-      ],
-      take: days * 4
-    });
+    const page = clampNumber(Number(req.query.page ?? 1), 1, 100000);
+    const legacyDays = req.query.days === undefined ? null : clampNumber(Number(req.query.days), 1, 90);
+    const pageSize = clampNumber(Number(req.query.pageSize ?? legacyDays ?? 10), 1, 50);
+    const [totalItems, predictions] = await Promise.all([
+      prisma.prediction.count(),
+      prisma.prediction.findMany({
+        include: { accuracy: true, evaluations: { orderBy: { kind: 'asc' } } },
+        orderBy: [
+          { predictionFor: 'desc' },
+          { date: 'desc' },
+          { revision: 'desc' }
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize
+      })
+    ]);
     const dates = Array.from(new Set(predictions.map((prediction) => dateKey(prediction.predictionFor))));
     const reports = await prisma.dailyLearningReport.findMany({
       where: {
@@ -43,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           bacang: prediction.bacang,
           bachThuLo: prediction.bachThuLo,
           bachThuDe: prediction.bachThuDe,
+          combinations: parseJsonField(prediction.combinations, {}),
           accuracy: prediction.accuracy
             ? {
                 de: prediction.accuracy.deAccuracy,
@@ -64,10 +71,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             modelProfile: evaluation.modelProfile,
             edgeStatus: evaluation.edgeStatus,
             metricName: evaluation.metricName,
+            predictedNumbers: evaluation.predictedNumbers,
             metricValue: evaluation.metricValue,
             baseline: evaluation.baseline,
             realizedLift: evaluation.realizedLift,
             predictedProbability: evaluation.predictedProbability,
+            backtestMetric: evaluation.backtestMetric,
+            backtestBaseline: evaluation.backtestBaseline,
+            backtestLift: evaluation.backtestLift,
             calibrationGap: evaluation.predictedProbability === null
               ? null
               : evaluation.predictedProbability - evaluation.metricValue,
@@ -85,7 +96,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             createdAt: prediction.createdAt
           }
         };
-      })
+      }),
+      pagination: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages: Math.max(1, Math.ceil(totalItems / pageSize)),
+        hasPreviousPage: page > 1,
+        hasNextPage: page * pageSize < totalItems
+      }
     });
   } catch (error) {
     console.error('Prediction ledger API error:', error);

@@ -23,6 +23,7 @@
     "daily:sync": "node scripts/sync-missing-results.js",
     "model:compare": "node scripts/model-comparison.js",
     "model:stability": "node scripts/model-stability.js",
+    "model:pick-count": "node scripts/pick-count-research.js",
     "model:live": "node scripts/live-performance.js",
     "model:backfill": "node scripts/backfill-prediction-evaluations.js",
     "model:outcomes": "node scripts/prediction-outcomes.js",

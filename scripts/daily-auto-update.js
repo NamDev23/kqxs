@@ -250,6 +250,11 @@ async function verifyPredictionRecord(prediction, draw, resultDate, resultDateKe
       create: evaluation
     })
   ));
+  const combinationHits = Object.fromEntries(
+    evaluations
+      .filter((evaluation) => ['xien2', 'xien3', 'xien4'].includes(evaluation.kind))
+      .map((evaluation) => [evaluation.kind, evaluation.hitNumbers])
+  );
 
   return {
     recordId: record.id,
@@ -267,7 +272,8 @@ async function verifyPredictionRecord(prediction, draw, resultDate, resultDateKe
       lo3: scores.lo3.hits,
       bacang: scores.bacang.hits,
       bachThuLo: scores.bachThuLo.hits,
-      bachThuDe: scores.bachThuDe.hits
+      bachThuDe: scores.bachThuDe.hits,
+      ...combinationHits
     },
     accuracy: {
       deAccuracy,
@@ -377,6 +383,12 @@ function buildLearningNotes(latest) {
   if (latest.accuracy.bacangAccuracy <= 0) notes.push('3 càng trượt: đây là thị trường mẫu mỏng, chỉ mở tín hiệu khi hitDays đủ ngưỡng.');
   if (latest.accuracy.bachThuLoAccuracy <= 0) notes.push('Bạch thủ lô trượt: dùng như single-pick riêng, không đánh đồng với dàn lô 2.');
   if (latest.accuracy.bachThuDeAccuracy <= 0) notes.push('Bạch thủ đề trượt: giữ research_only cho tới khi backtest single-pick có hit ổn định.');
+  ['xien2', 'xien3', 'xien4'].forEach((kind) => {
+    if (!Array.isArray(latest.hits[kind])) return;
+    notes.push(latest.hits[kind].length > 0
+      ? `${kind.toUpperCase()} có ${latest.hits[kind].length} tổ hợp hit; tiếp tục chấm precision OOS, không tăng số cặp theo một ngày.`
+      : `${kind.toUpperCase()} trượt; giữ evidence gate và không suy rộng từ đồng xuất hiện lịch sử.`);
+  });
   return notes;
 }
 
