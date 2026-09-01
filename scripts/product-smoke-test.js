@@ -82,6 +82,28 @@ async function main() {
     });
   });
 
+  const officialPortfolio = analysis.prediction.combinations.officialPortfolio;
+  assert(officialPortfolio.version === 'official_reward_aware_v1', 'Missing reward-aware official portfolio');
+  assert(officialPortfolio.policy.allowsNoSignal === true, 'Official portfolio must support a no-signal decision');
+  assert(officialPortfolio.policy.publishThreshold === 'qualified_only', 'Official portfolio must never publish watch/research picks');
+  assert(officialPortfolio.policy.minimumBacktestDays >= 180, 'Official portfolio backtest window is too short');
+  Object.values(officialPortfolio.products).forEach((product) => {
+    assert(product.backtest.testedDays >= 180, `Official ${product.kind} is missing walk-forward ROI`);
+    assert(Number.isFinite(product.backtest.roi), `Official ${product.kind} ROI is invalid`);
+    assert(product.backtest.folds.length === 3, `Official ${product.kind} needs three contiguous folds`);
+    product.selectedPicks.forEach((pick) => {
+      assert(product.status === 'qualified', `Official ${product.kind} published without qualified status`);
+      assert(pick.expectedNet > 0, `Official ${product.kind} published a non-positive EV ticket`);
+    });
+    if (product.status !== 'qualified') {
+      assert(product.selectedPicks.length === 0, `Official ${product.kind} must remain shadow-only`);
+    }
+  });
+  assert(
+    officialPortfolio.selectedTicketCount === Object.values(officialPortfolio.products).reduce((total, product) => total + product.selectedPicks.length, 0),
+    'Official selected ticket count is inconsistent'
+  );
+
   Object.values(analysis.sets).forEach((set) => {
     assert(['qualified', 'watch', 'research_only'].includes(set.edgeStatus), `Invalid edge status for ${set.kind}`);
     assert(set.testedDraws > 0, `Missing backtest attachment for ${set.kind}`);
@@ -131,7 +153,7 @@ async function main() {
     assert(storedSnapshot.sets, 'Stored snapshot is missing sets payload');
     assert(storedSnapshot.singles, 'Stored snapshot is missing singles payload');
     if (storedSnapshot.method === PRODUCT_METHOD) {
-      assert(storedSnapshot.combinations, 'Stored v7 snapshot is missing combinations payload');
+      assert(storedSnapshot.combinations, 'Stored current snapshot is missing combinations payload');
     }
     assert(storedSnapshot.backtest, 'Stored snapshot is missing backtest payload');
     assert(storedSnapshot.analysisView, 'Stored snapshot is missing analysis view payload');

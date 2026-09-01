@@ -54,3 +54,18 @@ Snapshot v7 ngày 28/08/2026 theo settlement chính thức:
 - Toàn bộ danh mục: chi 25, thu 10, lỗ 15 đơn vị, ROI -60%.
 
 Một ngày không đủ để suy luận lợi thế. API giữ trạng thái `collecting` dưới 30 ngày và không dùng ROI quan sát để tự động promote mô hình.
+
+## Nâng cấp reward-aware v8 — 02/09/2026
+
+Sau 5 kỳ live của v7, danh mục cũ chi 125 đơn vị, thu 24, ROI -80,8%. Riêng vé 2 cặp thu 23/25 đơn vị (ROI -8%); các nhánh còn lại chưa cho thấy hiệu quả kinh tế.
+
+V8 không chỉnh trọng số theo 5 kết quả này. Thay đổi là sửa đúng mục tiêu nghiên cứu:
+
+- Lô tô 2 xếp hạng theo gross kỳ vọng `70 × P(đuôi ĐB) + 1 × P(đuôi G1)`.
+- Lô tô 3 gộp đúng các mức ĐB, G1, G6 và khuyến khích; xác suất hiếm được co mạnh về prior để hạn chế jackpot lịch sử làm méo kết quả.
+- Vé cặp được chấm bằng toàn bộ mức thưởng và khuyến khích, không chỉ precision của lần xuất hiện đầy đủ.
+- Mỗi nhánh được walk-forward 180 kỳ, chia ba fold liên tiếp và kiểm tra riêng 60 kỳ gần nhất.
+- Chỉ phát vé khi ROI tổng và ROI gần nhất dương, ít nhất 2/3 fold dương, có tối thiểu 8 vé thắng và cận dưới 95% của net/ngày dương.
+- Nếu không đạt toàn bộ điều kiện, `selectedPicks` để trống. `researchPicks` vẫn được lưu để chạy shadow nhưng không được tính là tiền đã chi hay gửi như khuyến nghị Telegram.
+
+Backtest v8 trên dữ liệu đến 27/08/2026 không có nhánh nào vượt toàn bộ cổng phát. Vì vậy quyết định production đầu tiên của v8 là `NO SIGNAL`; đây là kết quả trung thực hơn việc luôn ép hệ thống đưa đủ số mỗi ngày.

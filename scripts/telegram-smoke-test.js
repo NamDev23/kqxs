@@ -26,7 +26,7 @@ async function main() {
   assert(strictMessage.includes('Chỉ là nghiên cứu thống kê'), 'Missing uncertainty disclaimer');
   assert(strictMessage.includes('Dữ liệu:</b> 395 kỳ'), 'Missing data count');
   assert(strictMessage.includes('Lô 2 số'), 'Qualified branch must be published');
-  assert(!strictMessage.includes('Đề đuôi ĐB</b> ['), 'Research-only branch must stay hidden');
+  assert(!strictMessage.includes('Đề đuôi ĐB</b> ['), 'Legacy research-only branch must stay hidden');
 
   const postDrawMessage = buildDailyTelegramMessage({
     ...input,
@@ -51,27 +51,14 @@ async function main() {
   }, 'watch');
   assert(blockedMessage.includes('Tạm dừng phát số'), 'Stale data must block number publication');
 
-  const liveGatedMessage = buildDailyTelegramMessage({
-    ...input,
-    modelMonitor: {
-      eligibleDays: 30,
-      minimumDays: 30,
-      status: 'review',
-      byKind: {
-        lo2: {
-          testedDays: 30,
-          hitRate: 90,
-          meanMetric: 20,
-          meanBaseline: 24,
-          pooledLift: 0.83,
-          calibrationGap: 5,
-          recommendation: 'review_model'
-        }
-      }
-    }
-  }, 'qualified');
-  assert(liveGatedMessage.includes('Live gate tạm dừng'), 'Mature underperforming branch must be paused');
-  assert(!liveGatedMessage.includes('Lô 2 số</b> ['), 'Paused branch must not publish numbers');
+  const noSignalAnalysis = buildAnalysisFixture();
+  noSignalAnalysis.prediction.combinations.officialPortfolio.hasSignal = false;
+  noSignalAnalysis.prediction.combinations.officialPortfolio.selectedTicketCount = 0;
+  noSignalAnalysis.prediction.combinations.officialPortfolio.products.loto2.status = 'no_signal';
+  noSignalAnalysis.prediction.combinations.officialPortfolio.products.loto2.selectedPicks = [];
+  const liveGatedMessage = buildDailyTelegramMessage({ ...input, analysis: noSignalAnalysis }, 'qualified');
+  assert(liveGatedMessage.includes('NO SIGNAL'), 'Reward-aware no-signal decision must be explicit');
+  assert(!liveGatedMessage.includes('ROI WF 12.00%'), 'Shadow-only tickets must not be published');
 
   let postedBody = null;
   const fakeFetch = async (_url, init) => {
@@ -159,6 +146,31 @@ function buildAnalysisFixture() {
       bachThuLo: '39',
       bachThuDe: '01',
       songthulode: [],
+      combinations: {
+        xien2: { picks: [] },
+        xien3: { picks: [] },
+        xien4: { picks: [] },
+        officialPortfolio: {
+          version: 'official_reward_aware_v1',
+          targetDate: '2026-08-16',
+          policy: { publishThreshold: 'qualified_only', allowsNoSignal: true, minimumBacktestDays: 180, minimumLiveDays: 30 },
+          hasSignal: true,
+          selectedTicketCount: 1,
+          products: {
+            loto2: {
+              kind: 'loto2',
+              label: 'Lô 2 số',
+              status: 'qualified',
+              statusLabel: 'Đủ bằng chứng để phát',
+              reason: 'fixture',
+              researchPicks: [{ selection: '39', numbers: ['39'], expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] }],
+              selectedPicks: [{ selection: '39', numbers: ['39'], expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] }],
+              backtest: { testedDays: 180, stakeUnits: 180, payoutUnits: 201.6, netUnits: 21.6, roi: 12, winningTickets: 10, positiveFolds: 3, folds: [], meanDailyNet: 0.12, netInterval: { low: 0.01, high: 0.23 }, recentRoi: 10 },
+              modelProfile: 'official_reward_aware_v1'
+            }
+          }
+        }
+      },
       dauduoi: { dau: [], duoi: [] }
     },
     sets: {

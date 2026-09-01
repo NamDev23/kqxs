@@ -38,15 +38,6 @@ export interface TelegramSendResult {
   reason?: string;
 }
 
-const STATUS_RANK: Record<EdgeStatus, number> = {
-  research_only: 0,
-  watch: 1,
-  qualified: 2
-};
-
-const SET_ORDER: PredictionKind[] = ['lo2', 'de', 'lo3', 'bacang'];
-const SINGLE_ORDER: SinglePickKind[] = ['bachThuLo', 'bachThuDe'];
-
 export function getTelegramConfig(
   env: NodeJS.ProcessEnv = process.env
 ): TelegramConfig | null {
@@ -101,38 +92,21 @@ export function buildDailyTelegramMessage(
       ...input.analysis.dataQuality.blockingReasons.slice(0, 3).map((reason) => `• ${escapeHtml(reason)}`)
     );
   } else {
-    const eligibleSets = SET_ORDER
-      .map((kind) => input.analysis.sets[kind])
-      .filter((set) => meetsMinimumStatus(set.edgeStatus, minEdgeStatus));
-    const eligibleSingles = SINGLE_ORDER
-      .map((kind) => input.analysis.singles[kind])
-      .filter((single) => single.published && meetsMinimumStatus(single.edgeStatus, minEdgeStatus));
-    const publishableSets = eligibleSets.filter((set) => passesLiveGate(input.modelMonitor, set.kind));
-    const publishableSingles = eligibleSingles.filter((single) => passesLiveGate(input.modelMonitor, single.kind));
-    const suppressedKinds = [
-      ...eligibleSets.filter((set) => !passesLiveGate(input.modelMonitor, set.kind)).map((set) => set.label),
-      ...eligibleSingles.filter((single) => !passesLiveGate(input.modelMonitor, single.kind)).map((single) => single.label)
-    ];
-
-    if (publishableSets.length === 0 && publishableSingles.length === 0) {
-      lines.push(`🟡 Không có nhánh đạt ngưỡng “${statusLabel(minEdgeStatus)}”; hôm nay hệ thống chủ động không phát số.`);
+    const portfolio = input.analysis.prediction.combinations.officialPortfolio;
+    const selectedProducts = Object.values(portfolio.products)
+      .filter((product) => product.selectedPicks.length > 0);
+    if (!portfolio.hasSignal || selectedProducts.length === 0) {
+      lines.push('🟡 NO SIGNAL — model reward-aware không tìm thấy vé vượt cổng ROI, CI95 và ổn định thời gian; hôm nay chủ động không phát vé.');
     } else {
-      publishableSets.forEach((set) => {
-        lines.push(
-          `• <b>${escapeHtml(set.label)}</b> [${escapeHtml(set.edgeLabel)}, ${set.backtestLift.toFixed(2)}x]: <code>${escapeHtml(set.numbers.join(' '))}</code>`
-        );
-      });
-      publishableSingles.forEach((single) => {
-        lines.push(
-          `• <b>${escapeHtml(single.label)}</b> [${escapeHtml(single.edgeLabel)}, ${single.lift.toFixed(2)}x]: <code>${escapeHtml(single.number)}</code>`
-        );
-      });
-      if (minEdgeStatus === 'watch') {
-        lines.push('⚠️ Cấu hình đang cho phép gửi cả tín hiệu yếu; CI95 có thể vẫn cắt baseline.');
-      }
+      selectedProducts.forEach((product) => lines.push(
+        `• <b>${escapeHtml(product.label)}</b> [ROI WF ${product.backtest.roi.toFixed(2)}%]: <code>${escapeHtml(product.selectedPicks.map((pick) => pick.selection).join(' · '))}</code>`
+      ));
     }
-    if (suppressedKinds.length > 0) {
-      lines.push(`⛔ Live gate tạm dừng: ${escapeHtml(suppressedKinds.join(', '))} (đủ ≥30 ngày nhưng đang dưới baseline).`);
+    const researchOnly = Object.values(portfolio.products)
+      .filter((product) => product.researchPicks.length > 0 && product.selectedPicks.length === 0)
+      .map((product) => product.label);
+    if (researchOnly.length > 0) {
+      lines.push(`🔬 Chỉ chạy shadow, không tính là vé phát: ${escapeHtml(researchOnly.join(', '))}.`);
     }
   }
 
@@ -202,20 +176,8 @@ export async function sendDailyTelegramReport(
   };
 }
 
-function meetsMinimumStatus(status: EdgeStatus, minimum: 'qualified' | 'watch') {
-  return STATUS_RANK[status] >= STATUS_RANK[minimum];
-}
-
-function passesLiveGate(monitor: ModelOutcomeMonitor | undefined, kind: PredictionKind | SinglePickKind) {
-  return monitor?.byKind[kind]?.recommendation !== 'review_model';
-}
-
 function formatHitLine(label: string, hits: string[] | undefined) {
   return `${escapeHtml(label)}: ${hits?.length ? `<code>${escapeHtml(hits.join(' '))}</code>` : '—'}`;
-}
-
-function statusLabel(status: 'qualified' | 'watch') {
-  return status === 'qualified' ? 'Đủ bằng chứng' : 'Tín hiệu yếu';
 }
 
 function parseBoolean(value: string | undefined) {

@@ -10,6 +10,10 @@ import {
 } from '@/lib/legal-lottery-products';
 import { normalizeLotteryDraws } from '@/lib/product-prediction-engine';
 import { parseJsonField } from '@/lib/prediction-snapshot';
+import type {
+  OfficialCandidate,
+  OfficialPortfolio
+} from '@/lib/legal-product-prediction';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -41,21 +45,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const target = prediction.predictionFor.toISOString().slice(0, 10);
       const draw = draws.get(target);
       if (!draw || prediction.createdAt >= drawTimeUtc(target)) return [];
-      const combinations = parseJsonField<Record<string, { picks?: Array<{ numbers?: string[] }> }>>(prediction.combinations, {});
-      const settlements = [
-        settleOfficialLoto2(prediction.de, draw),
-        settleOfficialLoto3(prediction.bacang, draw),
-        settleOfficialPairs('xien2', combinations.xien2?.picks ?? [], draw),
-        settleOfficialPairs('xien3', combinations.xien3?.picks ?? [], draw),
-        settleOfficialPairs('xien4', combinations.xien4?.picks ?? [], draw)
-      ];
+      const combinations = parseJsonField<Record<string, any>>(prediction.combinations, {});
+      const officialPortfolio = asOfficialPortfolio(combinations.officialPortfolio);
+      const settlements = officialPortfolio
+        ? settlePortfolio(officialPortfolio, draw, 'selectedPicks')
+        : settleLegacyPortfolio(prediction, combinations, draw);
+      const researchSettlements = officialPortfolio
+        ? settlePortfolio(officialPortfolio, draw, 'researchPicks')
+        : settlements;
       return [{
         id: prediction.id,
         target,
         issuedAt: prediction.createdAt.toISOString(),
         method: prediction.method,
         revision: prediction.revision,
-        settlements
+        settlements,
+        researchSettlements,
+        policy: officialPortfolio?.policy ?? null
       }];
     });
     const canonicalSnapshots = Array.from(snapshots.reduce((rows, snapshot) => {
@@ -70,9 +76,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         completedDays: new Set(rows.map((row) => row.target)).size,
         status: new Set(rows.map((row) => row.target)).size < 30 ? 'collecting' : 'review',
         totals: aggregate(rows.flatMap((row) => row.settlements)),
+        researchTotals: aggregate(rows.flatMap((row) => row.researchSettlements)),
         days: rows
       };
     }).sort((left, right) => String(right.method).localeCompare(String(left.method)));
+    const currentPortfolio = latestOfficialPortfolio(predictionRows);
 
     res.status(200).json({
       success: true,
@@ -86,12 +94,65 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         pairs: 'Xiên 2/3/4 tương thích với vé Lô tô cặp số và được chấm cả điều kiện số xuất hiện lặp.'
       },
       minimumLiveDays: 30,
+      currentPortfolio,
       byMethod
     });
   } catch (error) {
     console.error('Legal ROI API error:', error);
     res.status(500).json({ success: false, error: 'Failed to calculate official lottery ROI' });
   }
+}
+
+function settleLegacyPortfolio(prediction: any, combinations: Record<string, any>, draw: any) {
+  return [
+    settleOfficialLoto2(prediction.de, draw),
+    settleOfficialLoto3(prediction.bacang, draw),
+    settleOfficialPairs('xien2', combinations.xien2?.picks ?? [], draw),
+    settleOfficialPairs('xien3', combinations.xien3?.picks ?? [], draw),
+    settleOfficialPairs('xien4', combinations.xien4?.picks ?? [], draw)
+  ];
+}
+
+function settlePortfolio(
+  portfolio: OfficialPortfolio,
+  draw: any,
+  field: 'selectedPicks' | 'researchPicks'
+) {
+  const product = (kind: LegalProductKind) => portfolio.products[kind]?.[field] ?? [];
+  return [
+    settleOfficialLoto2(product('loto2').map((pick) => pick.selection), draw),
+    settleOfficialLoto3(product('loto3').map((pick) => pick.selection), draw),
+    settleOfficialPairs('xien2', product('xien2').map(asPairPick), draw),
+    settleOfficialPairs('xien3', product('xien3').map(asPairPick), draw),
+    settleOfficialPairs('xien4', product('xien4').map(asPairPick), draw)
+  ];
+}
+
+function asPairPick(pick: OfficialCandidate) {
+  return { numbers: pick.numbers };
+}
+
+function asOfficialPortfolio(value: unknown): OfficialPortfolio | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const portfolio = value as Partial<OfficialPortfolio>;
+  if (portfolio.version !== 'official_reward_aware_v1' || !portfolio.products) return null;
+  return portfolio as OfficialPortfolio;
+}
+
+function latestOfficialPortfolio(predictions: any[]) {
+  for (let index = predictions.length - 1; index >= 0; index -= 1) {
+    const prediction = predictions[index];
+    const combinations = parseJsonField<Record<string, any>>(prediction.combinations, {});
+    const portfolio = asOfficialPortfolio(combinations.officialPortfolio);
+    if (!portfolio) continue;
+    return {
+      method: prediction.method,
+      predictionFor: prediction.predictionFor.toISOString().slice(0, 10),
+      issuedAt: prediction.createdAt.toISOString(),
+      ...portfolio
+    };
+  }
+  return null;
 }
 
 function aggregate(rows: OfficialDaySettlement[]) {

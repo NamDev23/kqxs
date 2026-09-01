@@ -18,6 +18,18 @@ interface CombinationSetLike {
   picks?: Array<{ numbers?: string[] }>;
 }
 
+interface LedgerOfficialPortfolio {
+  hasSignal?: boolean;
+  selectedTicketCount?: number;
+  products?: Record<string, {
+    label?: string;
+    status?: string;
+    selectedPicks?: Array<{ selection?: string }>;
+    researchPicks?: Array<{ selection?: string }>;
+    backtest?: { roi?: number; recentRoi?: number };
+  }>;
+}
+
 interface LedgerEntry {
   id: string;
   snapshotDate: string;
@@ -30,7 +42,12 @@ interface LedgerEntry {
   bacang: string[];
   bachThuLo?: string | null;
   bachThuDe?: string | null;
-  combinations?: Record<string, CombinationSetLike>;
+  combinations?: {
+    xien2?: CombinationSetLike;
+    xien3?: CombinationSetLike;
+    xien4?: CombinationSetLike;
+    officialPortfolio?: LedgerOfficialPortfolio;
+  };
   evaluations?: EvaluationRow[];
   hits: null | Record<string, string[] | undefined>;
   learning: null | {
@@ -119,7 +136,18 @@ export default function PredictionLedger({
                     <NumberLine label="BT" values={[entry.bachThuLo ?? '', entry.bachThuDe ?? '']} />
                   </td>
                   <td className="border-b border-slate-100 px-3 py-3">
-                    {['xien2', 'xien3', 'xien4'].map((kind) => (
+                    {entry.combinations?.officialPortfolio ? (
+                      <div className={`mb-2 rounded border px-2 py-1.5 text-xs ${entry.combinations.officialPortfolio.hasSignal ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                        <div className="font-semibold">Official v8: {entry.combinations.officialPortfolio.hasSignal ? `${entry.combinations.officialPortfolio.selectedTicketCount ?? 0} vé phát` : 'NO SIGNAL'}</div>
+                        {Object.entries(entry.combinations.officialPortfolio.products ?? {}).map(([kind, product]) => (
+                          <div key={kind} className="mt-1 tabular-nums">
+                            {product.label ?? kind}: {(product.selectedPicks?.length ? product.selectedPicks : product.researchPicks ?? []).map((pick) => pick.selection).filter(Boolean).join(' · ') || '—'}
+                            {product.selectedPicks?.length ? '' : ' (shadow)'}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {(['xien2', 'xien3', 'xien4'] as const).map((kind) => (
                       <NumberLine
                         key={kind}
                         label={entry.combinations?.[kind]?.label ?? kind}

@@ -20,6 +20,31 @@ interface MethodReport {
     roi: number | null;
     byKind: Record<string, KindTotal>;
   };
+  researchTotals?: {
+    stakeUnits: number;
+    payoutUnits: number;
+    netUnits: number;
+    roi: number | null;
+    byKind: Record<string, KindTotal>;
+  };
+}
+
+interface PortfolioProduct {
+  label: string;
+  status: 'qualified' | 'watch' | 'no_signal';
+  statusLabel: string;
+  reason: string;
+  researchPicks: Array<{ selection: string; expectedGross: number; expectedNet: number }>;
+  selectedPicks: Array<{ selection: string; expectedGross: number; expectedNet: number }>;
+  backtest: { testedDays: number; roi: number; recentRoi: number; positiveFolds: number; netInterval: { low: number; high: number } };
+}
+
+interface CurrentPortfolio {
+  method: string;
+  predictionFor: string;
+  hasSignal: boolean;
+  selectedTicketCount: number;
+  products: Record<string, PortfolioProduct>;
 }
 
 interface Props {
@@ -28,6 +53,7 @@ interface Props {
     units?: string;
     compatibility?: Record<string, string>;
     minimumLiveDays?: number;
+    currentPortfolio?: CurrentPortfolio | null;
     byMethod?: MethodReport[];
   } | null;
 }
@@ -43,6 +69,7 @@ const LABELS: Record<string, string> = {
 export default function LegalLotteryROI({ report }: Props) {
   const methods = report?.byMethod ?? [];
   const latest = methods[0];
+  const current = report?.currentPortfolio;
 
   return (
     <section className="research-card overflow-hidden">
@@ -66,6 +93,40 @@ export default function LegalLotteryROI({ report }: Props) {
         </div>
       </div>
 
+      {current ? (
+        <div className="border-b border-line bg-white p-5 lg:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="eyebrow">Danh mục ngày {current.predictionFor}</div>
+              <h3 className="mt-1 text-lg font-semibold text-ink">
+                {current.hasSignal ? `${current.selectedTicketCount} vé đạt cổng phát` : 'Chủ động không phát vé hôm nay'}
+              </h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-muted">
+                Model v8 tối ưu trực tiếp thu–chi. Dàn nghiên cứu bên dưới không phải khuyến nghị mua vé khi chưa qua cổng ROI và độ ổn định.
+              </p>
+            </div>
+            <span className={`w-fit rounded-full border px-3 py-1 text-xs font-semibold ${current.hasSignal ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+              {current.hasSignal ? 'Có tín hiệu đủ chuẩn' : 'NO SIGNAL'}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            {Object.entries(current.products).map(([kind, product]) => (
+              <article key={kind} className="min-w-0 rounded-xl border border-line bg-panel-muted p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="text-sm font-semibold text-ink">{LABELS[kind] ?? product.label}</div>
+                  <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${product.status === 'qualified' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>{product.statusLabel}</span>
+                </div>
+                <div className="mt-3 text-sm font-bold tabular-nums text-ink">
+                  {(product.selectedPicks.length ? product.selectedPicks : product.researchPicks).map((pick) => pick.selection).join(' · ') || '—'}
+                </div>
+                <div className="mt-2 text-xs leading-5 text-muted">WF {product.backtest.testedDays} kỳ · ROI {formatPercent(product.backtest.roi)} · gần nhất {formatPercent(product.backtest.recentRoi)}</div>
+                <div className="mt-2 text-xs leading-5 text-muted">{product.reason}</div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {!latest ? (
         <div className="px-5 py-6 text-sm text-muted">Chưa có snapshot đủ điều kiện để chấm ROI chính thức.</div>
       ) : (
@@ -73,8 +134,8 @@ export default function LegalLotteryROI({ report }: Props) {
           <div className="grid gap-px bg-line sm:grid-cols-2 lg:grid-cols-4">
             <Summary label="Phiên bản" value={latest.method.replace('Product Walk-Forward Ensemble ', '')} />
             <Summary label="Ngày đã chấm" value={`${latest.completedDays}/${report?.minimumLiveDays ?? 30}`} />
-            <Summary label="Thu / chi" value={`${latest.totals.payoutUnits}/${latest.totals.stakeUnits} đơn vị`} />
-            <Summary label="ROI quan sát" value={formatPercent(latest.totals.roi)} tone={(latest.totals.roi ?? -1) >= 0 ? 'good' : 'bad'} />
+            <Summary label="Thu / chi đã phát" value={`${latest.totals.payoutUnits}/${latest.totals.stakeUnits} đơn vị`} />
+            <Summary label="ROI đã phát" value={formatPercent(latest.totals.roi)} tone={latest.totals.roi === null ? undefined : latest.totals.roi >= 0 ? 'good' : 'bad'} />
           </div>
           <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-5 lg:p-6">
             {Object.entries(latest.totals.byKind).map(([kind, row]) => (
@@ -85,11 +146,16 @@ export default function LegalLotteryROI({ report }: Props) {
               </article>
             ))}
           </div>
+          {latest.researchTotals && latest.researchTotals.stakeUnits !== latest.totals.stakeUnits ? (
+            <div className="border-t border-line bg-slate-50 px-5 py-3 text-xs leading-5 text-muted lg:px-6">
+              Shadow research không phát tiền: thu {latest.researchTotals.payoutUnits}/chi {latest.researchTotals.stakeUnits} đơn vị, ROI {formatPercent(latest.researchTotals.roi)}. Dữ liệu này chỉ dùng đánh giá challenger.
+            </div>
+          ) : null}
         </>
       )}
 
       <div className="border-t border-line bg-[#fff9f2] px-5 py-4 text-sm leading-6 text-[#7c421e] lg:px-6">
-        <strong>Giới hạn:</strong> “Lô 2/Lô 3” cũ đối chiếu 27 giải không phải vé Lô tô 2/3 số đơn chính thức nên bị loại khỏi ROI. Dàn đề được dùng làm ứng viên Lô tô 2 số; dàn 3 càng dùng làm ứng viên Lô tô 3 số; xiên dùng đúng thể lệ vé cặp số. Dưới {report?.minimumLiveDays ?? 30} ngày chỉ là quan sát, không phải lợi thế đã chứng minh.
+        <strong>Giới hạn:</strong> Từ v8, danh mục chính thức chỉ tính vé vượt cổng reward-aware; dàn chưa đạt được chạy shadow và không tính là tiền đã chi. Các phiên bản cũ vẫn được giữ nguyên để audit, không viết lại lịch sử. Dưới {report?.minimumLiveDays ?? 30} ngày live chỉ là quan sát, không phải lợi thế đã chứng minh.
       </div>
     </section>
   );

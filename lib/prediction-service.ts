@@ -257,10 +257,23 @@ function analysisFromPredictionRecord(prediction: any): ProductPredictionResult 
       bachThuLo: prediction.bachThuLo ?? prediction.lo2?.[0] ?? '',
       bachThuDe: prediction.bachThuDe ?? prediction.de?.[0] ?? '',
       songthulode: parseJsonField(prediction.songthulode, []),
-      combinations: parseJsonField(prediction.combinations, {
+      combinations: parseJsonField<ProductPredictionResult['prediction']['combinations']>(prediction.combinations, {
         xien2: emptyCombinationSet('xien2', 'Xiên 2', 2),
         xien3: emptyCombinationSet('xien3', 'Xiên 3', 3),
-        xien4: emptyCombinationSet('xien4', 'Xiên 4', 4)
+        xien4: emptyCombinationSet('xien4', 'Xiên 4', 4),
+        officialPortfolio: {
+          version: 'official_reward_aware_v1',
+          targetDate: prediction.predictionFor.toISOString().slice(0, 10),
+          policy: {
+            publishThreshold: 'qualified_only',
+            allowsNoSignal: true,
+            minimumBacktestDays: 180,
+            minimumLiveDays: 30
+          },
+          hasSignal: false,
+          selectedTicketCount: 0,
+          products: {} as ProductPredictionResult['prediction']['combinations']['officialPortfolio']['products']
+        }
       }),
       dauduoi: parseJsonField(prediction.dauduoi, { dau: [], duoi: [] })
     },
