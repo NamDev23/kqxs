@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import {
   PRODUCT_METHOD,
   createProductPrediction,
+  normalizeLotteryDraws,
   ProductPredictionResult
 } from '@/lib/product-prediction-engine';
 import {
@@ -9,6 +10,8 @@ import {
   createSnapshotHash,
   materializePredictionSnapshot
 } from '@/lib/prediction-snapshot';
+import { loadOfficialLiveEvidence } from './official-live-evidence';
+import { buildSignalPublication } from './signal-publication';
 
 export interface RuntimeTarget {
   targetDate: string;
@@ -26,12 +29,14 @@ const RESULT_BUFFER_MINUTE = 40;
 
 export async function loadProductAnalysis(targetDate?: string): Promise<ProductPredictionResult> {
   const draws = await prisma.lotteryResult.findMany({
-    orderBy: { date: 'asc' },
+    orderBy: { date: 'desc' },
     take: 730
   });
   const target = targetDate ?? getRuntimeTarget().targetDate;
 
-  return createProductPrediction(draws as any, target);
+  const normalized = normalizeLotteryDraws(draws as any);
+  const evidence = await loadOfficialLiveEvidence(prisma, normalized, target);
+  return createProductPrediction(draws as any, target, new Date(), evidence);
 }
 
 export async function getOrCreateProductPrediction(target: RuntimeTarget) {
@@ -147,6 +152,7 @@ export function buildRealtimeResponse(
   const dataQuality = snapshot.dataQuality;
 
   return {
+    publication: buildSignalPublication({ ...analysis, ...snapshot }, target.targetDate, predictionRecord.createdAt),
     prediction: snapshot.prediction,
     sets: snapshot.sets,
     singles: snapshot.singles,
@@ -210,6 +216,8 @@ export function buildRealtimeResponse(
       revision: predictionRecord.revision ?? 1,
       snapshotHash: predictionRecord.snapshotHash,
       method: PRODUCT_METHOD,
+      signalContract: 'publication',
+      legacyPredictionUsage: 'research_only',
       dataPoints: dataQuality.dataPoints,
       targetDate: target.targetDate
     }
@@ -219,7 +227,7 @@ export function buildRealtimeResponse(
 function isUsableStoredSnapshot(prediction: any, trainingCount: number) {
   return (
     prediction.method === PRODUCT_METHOD &&
-    prediction.dataPoints === trainingCount &&
+    prediction.dataPoints === Math.min(trainingCount, 730) &&
     Boolean(prediction.snapshotHash) &&
     Boolean(prediction.sets) &&
     Boolean(prediction.singles) &&
@@ -240,8 +248,8 @@ function analysisFromPredictionRecord(prediction: any): ProductPredictionResult 
     invalidDraws: 0,
     warnings: [],
     blockingReasons: [],
-    canPublish: true,
-    status: 'ready' as const,
+    canPublish: false,
+    status: 'blocked' as const,
     lagDays: null,
     completeness: 100,
     missingDates: []

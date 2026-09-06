@@ -5,6 +5,8 @@ import {
   type LegalProductKind
 } from './legal-lottery-products';
 import type { LotteryDraw } from './product-prediction-engine';
+import { hasQualifiedLiveEvidence, PUBLICATION_POLICY, type OfficialEvidenceByKind, type OfficialLiveEvidence } from './official-live-evidence';
+import { validateWalkForwardEdge } from './statistical-validation';
 
 export type OfficialPortfolioStatus = 'qualified' | 'watch' | 'no_signal';
 
@@ -29,6 +31,23 @@ export interface OfficialProductBacktest {
   meanDailyNet: number;
   netInterval: { low: number; high: number };
   recentRoi: number;
+  diagnostics?: {
+    baselineRoi: number;
+    edgeLowerBound: number;
+    netWithoutBestDay: number;
+    longestLosingStreak: number;
+    winningDays: number;
+  };
+  diversification?: {
+    strategy: 'pairs_max_exposure_2_v1';
+    testedDays: number;
+    roi: number;
+    roiDifference: number;
+    differenceInterval: { low: number; high: number };
+    winningDays: number;
+    longestLosingStreak: number;
+    decision: 'collect_forward_only';
+  };
 }
 
 export interface OfficialPortfolioProduct {
@@ -41,6 +60,9 @@ export interface OfficialPortfolioProduct {
   selectedPicks: OfficialCandidate[];
   backtest: OfficialProductBacktest;
   modelProfile: 'official_reward_aware_v1';
+  liveEvidence?: OfficialLiveEvidence;
+  concentration?: { maxNumberExposure: number; ticketCount: number; uniqueNumbers: number };
+  challengerPicks?: OfficialCandidate[];
 }
 
 export interface OfficialPortfolio {
@@ -51,6 +73,7 @@ export interface OfficialPortfolio {
     allowsNoSignal: true;
     minimumBacktestDays: number;
     minimumLiveDays: number;
+    version?: typeof PUBLICATION_POLICY;
   };
   hasSignal: boolean;
   selectedTicketCount: number;
@@ -75,15 +98,21 @@ const MIN_LIVE_DAYS = 30;
 
 export function buildOfficialPortfolio(
   draws: LotteryDraw[],
-  targetDate: string
+  targetDate: string,
+  liveEvidence: OfficialEvidenceByKind = {},
+  canPublish = false
 ): OfficialPortfolio {
+  draws = draws.filter((draw) => draw.date < targetDate).sort((a, b) => a.date.localeCompare(b.date));
   const pairCandidatePool = rankLo2Marginals(draws, 12);
   const products = Object.fromEntries(PRODUCT_CONFIGS.map((config) => {
     const researchPicks = rankProductCandidates(draws, config.kind, config.researchCount, pairCandidatePool);
     const backtest = backtestOfficialProduct(draws, config.kind, config.researchCount);
     const status = portfolioStatus(backtest);
-    const selectedPicks = status === 'qualified' && backtest.roi > 0
-      ? researchPicks.filter((pick) => pick.expectedNet > 0)
+    const evidence = liveEvidence[config.kind];
+    // Publish the exact fixed-count policy evaluated in backtest and forward
+    // snapshots. Filtering individual EV scores would create an untested policy.
+    const selectedPicks = canPublish && status === 'qualified' && hasQualifiedLiveEvidence(evidence, targetDate)
+      ? researchPicks
       : [];
     const finalStatus: OfficialPortfolioStatus = selectedPicks.length > 0 ? status : 'no_signal';
 
@@ -92,14 +121,21 @@ export function buildOfficialPortfolio(
       label: config.label,
       status: finalStatus,
       statusLabel: finalStatus === 'qualified'
-        ? 'Đủ bằng chứng để phát'
-        : status === 'watch'
-          ? 'Theo dõi, chưa phát'
-          : 'Không có tín hiệu',
-      reason: explainDecision(finalStatus, backtest, researchPicks),
+        ? 'Vượt điều kiện kiểm định'
+        : 'Không phát tín hiệu',
+      reason: selectedPicks.length > 0
+        ? `Vượt điều kiện lịch sử và ${evidence!.eligibleDays} ngày theo dõi trước quay; không bảo đảm trúng.`
+        : [!canPublish ? 'Dữ liệu chưa cho phép phát tín hiệu.' : '',
+          explainDecision('no_signal', backtest, researchPicks),
+          ...(evidence?.blockers ?? ['Thiếu bằng chứng theo dõi trước quay.'])].filter(Boolean).join(' '),
       researchPicks,
       selectedPicks,
       backtest,
+      liveEvidence: evidence,
+      concentration: portfolioConcentration(researchPicks),
+      challengerPicks: config.kind === 'xien2'
+        ? selectDiversifiedPairs(rankProductCandidates(draws, config.kind, 28, pairCandidatePool), config.researchCount)
+        : undefined,
       modelProfile: 'official_reward_aware_v1'
     } satisfies OfficialPortfolioProduct];
   })) as Record<LegalProductKind, OfficialPortfolioProduct>;
@@ -113,7 +149,8 @@ export function buildOfficialPortfolio(
       publishThreshold: 'qualified_only',
       allowsNoSignal: true,
       minimumBacktestDays: BACKTEST_DAYS,
-      minimumLiveDays: MIN_LIVE_DAYS
+      minimumLiveDays: MIN_LIVE_DAYS,
+      version: PUBLICATION_POLICY
     },
     hasSignal: selectedTicketCount > 0,
     selectedTicketCount,
@@ -129,20 +166,27 @@ export function backtestOfficialProduct(
 ): OfficialProductBacktest {
   if (draws.length <= MIN_TRAINING_DAYS) return emptyBacktest();
   const start = Math.max(MIN_TRAINING_DAYS, draws.length - window);
-  const days: Array<{ date: string; stake: number; payout: number; net: number; winners: number }> = [];
+  const days: Array<{ date: string; stake: number; payout: number; net: number; winners: number; baseline: number }> = [];
+  const diversifiedDays: Array<{ net: number; payout: number; stake: number }> = [];
 
   for (let index = start; index < draws.length; index += 1) {
     const target = draws[index];
     const training = draws.slice(Math.max(0, index - 500), index);
     const lo2Pool = rankLo2Marginals(training, 12);
-    const picks = rankProductCandidates(training, kind, pickCount, lo2Pool);
+    const ranked = rankProductCandidates(training, kind, kind === 'xien2' ? 28 : pickCount, lo2Pool);
+    const picks = ranked.slice(0, pickCount);
     const settlement = settleCandidates(kind, picks, target);
+    if (kind === 'xien2') {
+      const alternative = settleCandidates(kind, selectDiversifiedPairs(ranked, pickCount), target);
+      diversifiedDays.push({ net: alternative.netUnits, payout: alternative.payoutUnits, stake: alternative.stakeUnits });
+    }
     days.push({
       date: target.date,
       stake: settlement.stakeUnits,
       payout: settlement.payoutUnits,
       net: settlement.netUnits,
-      winners: settlement.winningTickets
+      winners: settlement.winningTickets,
+      baseline: settlement.stakeUnits * (uniformGrossForDraw(kind, target) - 1)
     });
   }
 
@@ -151,7 +195,7 @@ export function backtestOfficialProduct(
   const payoutUnits = sum(days.map((day) => day.payout));
   const dailyNet = days.map((day) => day.net);
   const meanDailyNet = mean(dailyNet);
-  const standardError = sampleStandardDeviation(dailyNet) / Math.sqrt(days.length);
+  const interval = validateWalkForwardEdge(dailyNet, dailyNet.map(() => 0), 4000, 0.01).edgeInterval;
   const foldSize = Math.max(1, Math.floor(days.length / 3));
   const folds = [0, 1, 2].map((fold) => {
     const from = fold * foldSize;
@@ -168,6 +212,11 @@ export function backtestOfficialProduct(
   const recent = days.slice(-60);
   const recentStake = sum(recent.map((day) => day.stake));
   const recentPayout = sum(recent.map((day) => day.payout));
+  const baselineNet = sum(days.map((day) => day.baseline));
+  const edge = validateWalkForwardEdge(dailyNet, days.map((day) => day.baseline), 4000, 0.01);
+  const alternativeStake = sum(diversifiedDays.map((day) => day.stake));
+  const alternativeNet = sum(diversifiedDays.map((day) => day.net));
+  const paired = diversifiedDays.length ? validateWalkForwardEdge(diversifiedDays.map((day) => day.net), dailyNet, 4000, 0.01) : null;
 
   return {
     testedDays: days.length,
@@ -180,10 +229,26 @@ export function backtestOfficialProduct(
     folds,
     meanDailyNet: round(meanDailyNet),
     netInterval: {
-      low: round(meanDailyNet - 1.96 * standardError),
-      high: round(meanDailyNet + 1.96 * standardError)
+      low: round(interval.low),
+      high: round(interval.high)
     },
-    recentRoi: percent(recentPayout - recentStake, recentStake)
+    recentRoi: percent(recentPayout - recentStake, recentStake),
+    diagnostics: {
+      baselineRoi: percent(baselineNet, stakeUnits),
+      edgeLowerBound: round(edge.edgeInterval.low),
+      netWithoutBestDay: sum(dailyNet) - Math.max(0, ...dailyNet),
+      longestLosingStreak: longestLosingStreak(dailyNet),
+      winningDays: days.filter((day) => day.payout > 0).length
+    },
+    diversification: paired ? {
+      strategy: 'pairs_max_exposure_2_v1', testedDays: diversifiedDays.length,
+      roi: percent(alternativeNet, alternativeStake),
+      roiDifference: round(percent(alternativeNet, alternativeStake) - percent(payoutUnits - stakeUnits, stakeUnits)),
+      differenceInterval: { low: round(paired.edgeInterval.low), high: round(paired.edgeInterval.high) },
+      winningDays: diversifiedDays.filter((day) => day.payout > 0).length,
+      longestLosingStreak: longestLosingStreak(diversifiedDays.map((day) => day.net)),
+      decision: 'collect_forward_only'
+    } : undefined
   };
 }
 
@@ -307,7 +372,9 @@ function portfolioStatus(backtest: OfficialProductBacktest): OfficialPortfolioSt
     backtest.roi > 0 &&
     backtest.recentRoi > 0 &&
     backtest.positiveFolds >= 2 &&
-    backtest.netInterval.low > 0
+    backtest.netInterval.low > 0 &&
+    !!backtest.diagnostics && backtest.diagnostics.edgeLowerBound > 0 &&
+    backtest.diagnostics.netWithoutBestDay > 0
   ) return 'qualified';
   if (
     backtest.testedDays >= 120 &&
@@ -327,13 +394,17 @@ function explainDecision(
   }
   if (backtest.testedDays < 120) return `Mới có ${backtest.testedDays} kỳ walk-forward; chưa đủ dữ liệu.`;
   const blockers = [
+    !backtest.diagnostics || backtest.diagnostics.edgeLowerBound <= 0 ? 'chưa vượt nền chọn đều cùng chi phí' : null,
+    !backtest.diagnostics || backtest.diagnostics.netWithoutBestDay <= 0 ? 'không còn lãi khi bỏ kỳ tốt nhất' : null,
+    backtest.testedDays < BACKTEST_DAYS ? `mới có ${backtest.testedDays}/${BACKTEST_DAYS} kỳ lịch sử` : null,
+    backtest.winningTickets < 8 ? `mới có ${backtest.winningTickets}/8 lựa chọn có thưởng trong lịch sử` : null,
     backtest.roi <= 0 ? `ROI ${backtest.roi}% chưa dương` : null,
     backtest.recentRoi <= 0 ? `60 kỳ gần nhất ${backtest.recentRoi}%` : null,
     backtest.positiveFolds < 2 ? `${backtest.positiveFolds}/3 fold dương` : null,
     backtest.netInterval.low <= 0 ? `cận dưới net ${backtest.netInterval.low}` : null,
     picks.every((pick) => pick.expectedNet <= 0) ? 'không có vé EV dương sau co mẫu' : null
   ].filter(Boolean);
-  return `Không phát vé: ${blockers.join('; ')}.`;
+  return blockers.length ? `Chưa đạt kiểm định lịch sử: ${blockers.join('; ')}.` : 'Đạt điều kiện lịch sử, vẫn cần kiểm định theo dõi trước quay.';
 }
 
 function candidate(selection: string, numbers: string[], expectedGross: number, reasons: string[]): OfficialCandidate {
@@ -366,6 +437,38 @@ function baselinePairGross(draws: LotteryDraw[], kind: 'xien2' | 'xien3' | 'xien
     }
     return totalPayout / Math.max(1, totalCombinations);
   }));
+}
+
+/** Exact mean payout over all valid uniform selections, conditional on a draw.
+ * Used only to score the baseline AFTER predicting, never as a ranking input. */
+export function uniformGrossForDraw(kind: LegalProductKind, draw: LotteryDraw): number {
+  if (kind === 'loto2') return 0.71;
+  if (kind === 'loto3') return (420 + 9 * 5 + 20 + new Set(draw.sixth).size * 5) / 1000;
+  return baselinePairGross([draw], kind, kind === 'xien2' ? 2 : kind === 'xien3' ? 3 : 4);
+}
+
+export function selectDiversifiedPairs(ranked: OfficialCandidate[], count: number): OfficialCandidate[] {
+  const exposure = new Map<string, number>();
+  const selected: OfficialCandidate[] = [];
+  for (const candidate of ranked) {
+    if (candidate.numbers.some((number) => (exposure.get(number) ?? 0) >= 2)) continue;
+    selected.push(candidate);
+    candidate.numbers.forEach((number) => exposure.set(number, (exposure.get(number) ?? 0) + 1));
+    if (selected.length === count) break;
+  }
+  return selected;
+}
+
+export function portfolioConcentration(picks: OfficialCandidate[]) {
+  const exposure = new Map<string, number>();
+  picks.forEach((pick) => pick.numbers.forEach((number) => exposure.set(number, (exposure.get(number) ?? 0) + 1)));
+  return { maxNumberExposure: Math.max(0, ...exposure.values()), ticketCount: picks.length, uniqueNumbers: exposure.size };
+}
+
+function longestLosingStreak(net: number[]) {
+  let longest = 0; let current = 0;
+  net.forEach((value) => { current = value < 0 ? current + 1 : 0; longest = Math.max(longest, current); });
+  return longest;
 }
 
 function drawEndings(draw: LotteryDraw) {

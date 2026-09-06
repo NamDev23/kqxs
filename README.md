@@ -4,6 +4,8 @@ Dashboard nghiên cứu thống kê xổ số miền Bắc theo nguyên tắc c�
 
 ## Trạng thái hiện tại
 
+Bản code v9 bổ sung cổng phát chung cho web/API/Telegram; xem [quy trình phát hành v9](./RELEASE_V9.md). Xếp hạng nghiên cứu không được coi là xác suất đã hiệu chuẩn. Các số liệu v6 dưới đây là ghi nhận lịch sử, không phải tình trạng production hiện tại.
+
 - Dữ liệu: 435 kỳ hợp lệ, từ 14/06/2025 đến 26/08/2026.
 - Bốn ngày không quay dịp Tết 2026 được khai báo riêng, không bị coi là lỗi crawl.
 - Các ngày đồng bộ mới được yêu cầu khớp giữa `xoso.com.vn` và `minhngoc.net.vn`.

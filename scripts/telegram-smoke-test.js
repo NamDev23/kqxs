@@ -153,9 +153,9 @@ function buildAnalysisFixture() {
         officialPortfolio: {
           version: 'official_reward_aware_v1',
           targetDate: '2026-08-16',
-          policy: { publishThreshold: 'qualified_only', allowsNoSignal: true, minimumBacktestDays: 180, minimumLiveDays: 30 },
+          policy: { version: 'forward_evidence_v1', publishThreshold: 'qualified_only', allowsNoSignal: true, minimumBacktestDays: 180, minimumLiveDays: 30 },
           hasSignal: true,
-          selectedTicketCount: 1,
+          selectedTicketCount: 3,
           products: {
             loto2: {
               kind: 'loto2',
@@ -163,9 +163,10 @@ function buildAnalysisFixture() {
               status: 'qualified',
               statusLabel: 'Đủ bằng chứng để phát',
               reason: 'fixture',
-              researchPicks: [{ selection: '39', numbers: ['39'], expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] }],
-              selectedPicks: [{ selection: '39', numbers: ['39'], expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] }],
-              backtest: { testedDays: 180, stakeUnits: 180, payoutUnits: 201.6, netUnits: 21.6, roi: 12, winningTickets: 10, positiveFolds: 3, folds: [], meanDailyNet: 0.12, netInterval: { low: 0.01, high: 0.23 }, recentRoi: 10 },
+              researchPicks: ['39', '12', '45'].map(n => ({ selection: n, numbers: [n], expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] })),
+              selectedPicks: ['39', '12', '45'].map(n => ({ selection: n, numbers: [n], expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] })),
+              liveEvidence: { strategy: 'official_reward_aware_v1', asOf: '2026-08-16', lastEvaluatedDate: '2026-08-15', latestResultDate: '2026-08-15', eligibleDays: 30, winningDays: 10, roi: 12, recentRoi: 10, netLowerBound: 0.01, netWithoutBestDay: 1, qualified: true, blockers: [], snapshotIds: Array.from({ length: 30 }, (_, i) => `fixture-${i}`) },
+              backtest: { testedDays: 180, stakeUnits: 180, payoutUnits: 201.6, netUnits: 21.6, roi: 12, winningTickets: 10, positiveFolds: 3, folds: [], meanDailyNet: 0.12, netInterval: { low: 0.01, high: 0.23 }, recentRoi: 10, diagnostics: { edgeLowerBound: 0.01, netWithoutBestDay: 1 } },
               modelProfile: 'official_reward_aware_v1'
             }
           }

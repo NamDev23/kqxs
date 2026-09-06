@@ -22,6 +22,7 @@ const {
 const { sendDailyTelegramReport } = require('../lib/telegram-notifier.ts');
 const { buildPredictionEvaluations } = require('../lib/prediction-evaluation.ts');
 const { buildModelOutcomeMonitor } = require('../lib/model-outcome-monitor.ts');
+const { loadOfficialLiveEvidence } = require('../lib/official-live-evidence.ts');
 
 const env = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf8') : '';
 const match = env.match(/^DATABASE_URL\s*=\s*"?([^"\n]+)"?/m);
@@ -59,10 +60,11 @@ async function saveResult(result) {
 
 async function createSnapshot(targetDate, generatedDateKey = getVietnamDateKey()) {
   const rows = await prisma.lotteryResult.findMany({
-    orderBy: { date: 'asc' },
-    take: 1000
+    orderBy: { date: 'desc' },
+    take: 730
   });
-  const analysis = createProductPrediction(rows, targetDate);
+  const evidence = await loadOfficialLiveEvidence(prisma, normalizeLotteryDraws(rows), targetDate);
+  const analysis = createProductPrediction(rows, targetDate, new Date(), evidence);
   const generatedDate = new Date(`${generatedDateKey}T00:00:00.000Z`);
   const predictionFor = new Date(`${targetDate}T00:00:00.000Z`);
   const snapshotHash = createSnapshotHash(analysis);

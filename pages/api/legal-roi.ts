@@ -79,16 +79,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         researchTotals: aggregate(rows.flatMap((row) => row.researchSettlements)),
         days: rows
       };
-    }).sort((left, right) => String(right.method).localeCompare(String(left.method)));
+    }).sort((left, right) => String(right.method).localeCompare(String(left.method), 'en', { numeric: true }));
     const currentPortfolio = latestOfficialPortfolio(predictionRows);
 
     res.status(200).json({
       success: true,
       source: CAPITAL_LOTTERY_SOURCE,
-      units: 'Mỗi lựa chọn/tổ hợp là 1 đơn vị mệnh giá vé; payout là tổng tiền thưởng theo lần mệnh giá.',
+      units: 'Mô phỏng mỗi lựa chọn/tổ hợp 1 đơn vị mệnh giá vé; không ghi nhận giao dịch hoặc tiền thực tế của người dùng.',
       compatibility: {
-        loto2: 'Dùng dàn đề hiện tại làm ứng viên vé Lô tô 2 số chính thức; đối chiếu ĐB và giải Nhất.',
-        loto3: 'Dùng dàn 3 càng hiện tại làm ứng viên vé Lô tô 3 số chính thức; đối chiếu ĐB, giải Nhất, giải Sáu và khuyến khích.',
+        loto2: 'Từ v8 dùng bộ xếp hạng chính thức riêng; bản trước v8 ánh xạ dàn đề. Đối chiếu ĐB và giải Nhất.',
+        loto3: 'Từ v8 dùng bộ xếp hạng chính thức riêng; bản trước v8 ánh xạ dàn 3 càng. Đối chiếu theo từng điều kiện giải.',
         lo2: 'Không dùng dàn lô 2 toàn bộ 27 giải để tính ROI vé Lô tô 2 số đơn vì khác thể lệ chính thức.',
         lo3: 'Không dùng dàn lô 3 toàn bộ 27 giải để tính ROI vé Lô tô 3 số đơn vì khác thể lệ chính thức.',
         pairs: 'Xiên 2/3/4 tương thích với vé Lô tô cặp số và được chấm cả điều kiện số xuất hiện lặp.'

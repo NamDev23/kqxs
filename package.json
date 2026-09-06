@@ -28,8 +28,11 @@
     "model:backfill": "node scripts/backfill-prediction-evaluations.js",
     "model:outcomes": "node scripts/prediction-outcomes.js",
     "model:review": "node scripts/weekly-model-review.js",
-    "release:check": "npm run data:audit && npm test && npm run typecheck && npm run build && npm audit",
+    "release:check": "npm run test:publication && npm run test:telegram && npm run data:audit && npm test && npm run typecheck && npm run build && npm audit",
     "test:telegram": "node scripts/telegram-smoke-test.js",
+    "test:publication": "node scripts/publication-gate-test.js",
+    "test:production-gate": "node scripts/production-gate-check.js",
+    "test:replay": "node scripts/production-replay-test.js",
     "cron": "node analyzer/cron-scheduler.js"
   },
   "dependencies": {

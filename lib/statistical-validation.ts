@@ -15,7 +15,8 @@ export interface BootstrapValidation {
 export function validateWalkForwardEdge(
   modelScores: number[],
   baselineScores: number[],
-  iterations = 1600
+  iterations = 1600,
+  alpha = 0.05
 ): BootstrapValidation {
   const length = Math.min(modelScores.length, baselineScores.length);
   if (length === 0) {
@@ -70,12 +71,12 @@ export function validateWalkForwardEdge(
 
   return {
     modelInterval: {
-      low: quantile(modelMeans, 0.025),
-      high: quantile(modelMeans, 0.975)
+      low: quantile(modelMeans, alpha / 2),
+      high: quantile(modelMeans, 1 - alpha / 2)
     },
     edgeInterval: {
-      low: quantile(edgeMeans, 0.025),
-      high: quantile(edgeMeans, 0.975)
+      low: quantile(edgeMeans, alpha / 2),
+      high: quantile(edgeMeans, 1 - alpha / 2)
     },
     probabilityAboveBaseline: edgeMeans.filter((value) => value > 0).length / edgeMeans.length,
     observedEdge

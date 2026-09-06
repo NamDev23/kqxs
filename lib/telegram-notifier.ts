@@ -5,6 +5,7 @@ import type {
   SinglePickKind
 } from './product-prediction-engine';
 import type { ModelOutcomeMonitor } from './model-outcome-monitor';
+import { buildSignalPublication } from './signal-publication';
 
 type TelegramFetch = typeof fetch;
 
@@ -71,6 +72,7 @@ export function buildDailyTelegramMessage(
   if (canonical) {
     lines.push(
       `Snapshot gốc: ${escapeHtml(canonical.snapshotDate)} · rev ${canonical.revision}`,
+      'Đối chiếu dàn nghiên cứu cũ, không phải ROI danh mục phát:',
       formatHitLine('Đề', canonical.hits.de),
       formatHitLine('Lô 2', canonical.hits.lo2),
       formatHitLine('Lô 3', canonical.hits.lo3),
@@ -92,28 +94,19 @@ export function buildDailyTelegramMessage(
       ...input.analysis.dataQuality.blockingReasons.slice(0, 3).map((reason) => `• ${escapeHtml(reason)}`)
     );
   } else {
-    const portfolio = input.analysis.prediction.combinations.officialPortfolio;
-    const selectedProducts = Object.values(portfolio.products)
-      .filter((product) => product.selectedPicks.length > 0);
-    if (!portfolio.hasSignal || selectedProducts.length === 0) {
-      lines.push('🟡 NO SIGNAL — model reward-aware không tìm thấy vé vượt cổng ROI, CI95 và ổn định thời gian; hôm nay chủ động không phát vé.');
+    const publication = buildSignalPublication(input.analysis, input.targetDate);
+    if (publication.products.length === 0) {
+      lines.push(`🟡 NO SIGNAL — ${escapeHtml(publication.reasons.join(' '))}`);
     } else {
-      selectedProducts.forEach((product) => lines.push(
-        `• <b>${escapeHtml(product.label)}</b> [ROI WF ${product.backtest.roi.toFixed(2)}%]: <code>${escapeHtml(product.selectedPicks.map((pick) => pick.selection).join(' · '))}</code>`
+      publication.products.forEach((product) => lines.push(
+        `• <b>${escapeHtml(product.label)}</b> [${product.forwardDays} ngày theo dõi, ROI mô phỏng ${product.forwardRoi?.toFixed(2)}%]: <code>${escapeHtml(product.selections.join(' · '))}</code>`
       ));
-    }
-    const researchOnly = Object.values(portfolio.products)
-      .filter((product) => product.researchPicks.length > 0 && product.selectedPicks.length === 0)
-      .map((product) => product.label);
-    if (researchOnly.length > 0) {
-      lines.push(`🔬 Chỉ chạy shadow, không tính là vé phát: ${escapeHtml(researchOnly.join(', '))}.`);
     }
   }
 
-  const aggregate = input.analysis.backtest.aggregate;
   lines.push(
     '',
-    `<b>Kiểm định:</b> ${aggregate.modelScore.toFixed(2)}% so với nền ${aggregate.randomBaseline.toFixed(2)}% · ${aggregate.lift.toFixed(2)}x`,
+    'Điểm xếp hạng và ROI không phải xác suất trúng. Dàn nghiên cứu không được phát như khuyến nghị.',
     `<b>Dữ liệu:</b> ${input.analysis.dataQuality.dataPoints} kỳ, mới nhất ${escapeHtml(input.analysis.dataQuality.lastDate ?? 'không có')}`,
   );
 

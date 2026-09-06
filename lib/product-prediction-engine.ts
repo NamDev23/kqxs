@@ -1,5 +1,6 @@
 import { validateWalkForwardEdge } from './statistical-validation';
 import { buildOfficialPortfolio, type OfficialPortfolio } from './legal-product-prediction';
+import type { OfficialEvidenceByKind } from './official-live-evidence';
 
 export interface LotteryDraw {
   date: string;
@@ -298,7 +299,7 @@ interface ProfileSelection {
   testedDraws: number;
 }
 
-const PRODUCT_METHOD = 'Product Walk-Forward Ensemble v8';
+const PRODUCT_METHOD = 'Product Walk-Forward Ensemble v9';
 
 const SCORE_PROFILES: ScoreProfile[] = [
   {
@@ -434,7 +435,8 @@ export function normalizeLotteryDraws(input: any[]): LotteryDraw[] {
 export function createProductPrediction(
   rawDraws: LotteryDraw[],
   targetDate: string,
-  generatedAt = new Date()
+  generatedAt = new Date(),
+  liveEvidence: OfficialEvidenceByKind = {}
 ): ProductPredictionResult {
   const sortedDraws = normalizeLotteryDraws(rawDraws);
 
@@ -457,7 +459,7 @@ export function createProductPrediction(
   const legacyCombinations = buildCombinationSets(trainingDraws, targetDate, rawSets.lo2.ranked.slice(0, 12));
   const combinations = {
     ...legacyCombinations,
-    officialPortfolio: buildOfficialPortfolio(trainingDraws, targetDate)
+    officialPortfolio: buildOfficialPortfolio(trainingDraws, targetDate, liveEvidence, dataQuality.canPublish)
   };
 
   const aggregate = summarizeBacktests(summaries);

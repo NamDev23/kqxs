@@ -87,13 +87,14 @@ async function main() {
   assert(officialPortfolio.policy.allowsNoSignal === true, 'Official portfolio must support a no-signal decision');
   assert(officialPortfolio.policy.publishThreshold === 'qualified_only', 'Official portfolio must never publish watch/research picks');
   assert(officialPortfolio.policy.minimumBacktestDays >= 180, 'Official portfolio backtest window is too short');
+  assert(officialPortfolio.selectedTicketCount === 0, 'No forward evidence supplied: publication must fail closed');
   Object.values(officialPortfolio.products).forEach((product) => {
     assert(product.backtest.testedDays >= 180, `Official ${product.kind} is missing walk-forward ROI`);
     assert(Number.isFinite(product.backtest.roi), `Official ${product.kind} ROI is invalid`);
     assert(product.backtest.folds.length === 3, `Official ${product.kind} needs three contiguous folds`);
     product.selectedPicks.forEach((pick) => {
       assert(product.status === 'qualified', `Official ${product.kind} published without qualified status`);
-      assert(pick.expectedNet > 0, `Official ${product.kind} published a non-positive EV ticket`);
+      assert(product.liveEvidence?.qualified, `Official ${product.kind} published without forward evidence`);
     });
     if (product.status !== 'qualified') {
       assert(product.selectedPicks.length === 0, `Official ${product.kind} must remain shadow-only`);

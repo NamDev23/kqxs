@@ -8,12 +8,13 @@ import HotColdNumbers from '@/components/HotColdNumbers';
 import PredictionLedger from '@/components/PredictionLedger';
 import NumberResearchMatrix from '@/components/NumberResearchMatrix';
 import LegalLotteryROI from '@/components/LegalLotteryROI';
+import OfficialSignals from '@/components/OfficialSignals';
 
 type LoadState = 'loading' | 'ready' | 'error';
 type View = 'signals' | 'statistics' | 'validation' | 'ledger';
 
 const VIEWS: Array<{ key: View; label: string; description: string }> = [
-  { key: 'signals', label: 'Tín hiệu', description: 'Snapshot và dàn nghiên cứu' },
+  { key: 'signals', label: 'Tín hiệu', description: 'Chỉ danh mục vượt kiểm định' },
   { key: 'statistics', label: 'Thống kê 00–99', description: 'Tần suất, gan, cặp số' },
   { key: 'validation', label: 'Kiểm định', description: 'Walk-forward và CI95' },
   { key: 'ledger', label: 'Nhật ký', description: 'Dự báo đã chốt và kết quả' }
@@ -112,8 +113,7 @@ export default function Home() {
               ? <DataLockedPanel warnings={dailyData.dataQuality?.blockingReasons ?? qualityWarnings} />
               : (
                 <div className="space-y-5">
-                  <DecisionPanel aggregate={aggregate} />
-                  <PredictionTypes prediction={dailyData.prediction} sets={dailyData.sets} singles={dailyData.singles} />
+                  <OfficialSignals publication={dailyData.publication} />
                 </div>
               )
           )}
@@ -128,7 +128,16 @@ export default function Home() {
 
           {view === 'validation' && (
             <div className="space-y-5">
-              <LegalLotteryROI report={legalRoiData} />
+              <LegalLotteryROI report={legalRoiData ? { ...legalRoiData, currentPortfolio: {
+                ...dailyData.prediction.combinations.officialPortfolio,
+                predictionFor: dailyData.timing.targetDate,
+                method: dailyData.meta.method
+              } } : null} />
+              <details className="research-card p-5">
+                <summary className="cursor-pointer font-semibold">Dàn nghiên cứu cũ — không phải tín hiệu phát</summary>
+                <p className="my-4 text-sm text-muted">Các nhãn và tỷ lệ bên dưới chỉ mô tả backtest từng nhánh, không vượt cổng phát hiện hành. Không đọc chúng như xác suất trúng kỳ tới.</p>
+                <PredictionTypes prediction={dailyData.prediction} sets={dailyData.sets} singles={dailyData.singles} />
+              </details>
               <AccuracyTracker
                 historicalAccuracy={dailyData.accuracy?.historicalAccuracy ?? 0}
                 randomBaseline={dailyData.accuracy?.randomBaseline ?? 0}
@@ -160,11 +169,12 @@ export default function Home() {
 }
 
 function SnapshotPanel({ data, aggregate, blocked }: { data: any; aggregate: any; blocked: boolean }) {
+  const qualified = data.publication?.status === 'qualified';
   const status = blocked
     ? 'Dừng phát tín hiệu'
-    : aggregate.qualifiedMarkets > 0
-      ? `${aggregate.qualifiedMarkets} nhánh đủ bằng chứng`
-      : 'Chưa có edge đủ bằng chứng';
+    : qualified
+      ? `${data.publication.products.length} danh mục vượt kiểm định`
+      : 'Không có tín hiệu đủ điều kiện';
 
   return (
     <section className="research-card relative overflow-hidden p-5 lg:p-6">
@@ -173,11 +183,11 @@ function SnapshotPanel({ data, aggregate, blocked }: { data: any; aggregate: any
         <div>
           <div className="eyebrow">Snapshot bất biến · {data.timing?.phase}</div>
           <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">{status}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{data.timing?.status}. {aggregate.conclusion}</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{data.timing?.status}. Quyết định phát dựa trên cả kiểm định lịch sử và snapshot chốt trước quay; không dựa vào chỉ số gộp.</p>
         </div>
-        <div className={`rounded-2xl border px-4 py-3 ${blocked ? 'border-red-200 bg-red-50' : aggregate.qualifiedMarkets > 0 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+        <div className={`rounded-2xl border px-4 py-3 ${blocked ? 'border-red-200 bg-red-50' : qualified ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
           <div className="text-[10px] font-bold uppercase tracking-wider text-muted">Quyết định hệ thống</div>
-          <div className="mt-1 font-bold text-ink">{blocked ? 'LOCKED' : aggregate.qualifiedMarkets > 0 ? 'QUALIFIED' : 'ABSTAIN'}</div>
+          <div className="mt-1 font-bold text-ink">{blocked || data.publication?.status === 'blocked' ? 'LOCKED' : qualified ? 'QUALIFIED' : 'NO SIGNAL'}</div>
         </div>
       </div>
 
@@ -252,7 +262,7 @@ function MethodPanel() {
   ];
   return (
     <section className="research-card p-5 lg:p-6">
-      <div className="eyebrow">Protocol v5</div>
+      <div className="eyebrow">Nghiên cứu lịch sử · không phải cổng phát</div>
       <h2 className="mt-1 text-xl font-semibold text-ink">Nguyên tắc tính toán</h2>
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {notes.map(([title, body]) => (

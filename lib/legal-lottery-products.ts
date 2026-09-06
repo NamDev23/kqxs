@@ -24,7 +24,7 @@ export interface OfficialDaySettlement {
   stakeUnits: number;
   payoutUnits: number;
   netUnits: number;
-  roi: number;
+  roi: number | null;
   tickets: OfficialTicketSettlement[];
 }
 
@@ -161,7 +161,7 @@ function summarize(kind: LegalProductKind, tickets: OfficialTicketSettlement[]):
     stakeUnits,
     payoutUnits,
     netUnits,
-    roi: stakeUnits > 0 ? round(netUnits / stakeUnits * 100) : 0,
+    roi: stakeUnits > 0 ? round(netUnits / stakeUnits * 100) : null,
     tickets
   };
 }
