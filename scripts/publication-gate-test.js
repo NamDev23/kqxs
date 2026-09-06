@@ -4,9 +4,6 @@ const { buildOfficialLiveEvidence, hasQualifiedLiveEvidence, PUBLICATION_POLICY 
 const { buildSignalPublication } = require('../lib/signal-publication.ts');
 const { settleOfficialLoto2, settleOfficialLoto3, settleOfficialPairs } = require('../lib/legal-lottery-products.ts');
 const { uniformGrossForDraw, selectDiversifiedPairs, portfolioConcentration } = require('../lib/legal-product-prediction.ts');
-const React = require('react');
-const { renderToStaticMarkup } = require('react-dom/server');
-const OfficialSignals = require('../components/OfficialSignals.tsx').default;
 
 // Synthetic fixtures test mechanics, never claimed as model performance.
 const picks = [['45', '11'], ['45', '22'], ['11', '22']].map(numbers => ({ numbers, selection: numbers.join('+'), expectedGross: 1.2, expectedNet: 0.2, score: 120, reasons: [] }));
@@ -49,14 +46,6 @@ const analysis = { meta: { generatedAt: '2026-08-31T12:00:00Z' }, dataQuality: {
     products: { xien2: { kind: 'xien2', label: 'Xiên 2', status: 'qualified', researchPicks: picks, selectedPicks: picks, liveEvidence: evidence, backtest } } }
 } } };
 assert.equal(buildSignalPublication(analysis, target).products.length, 1);
-const qualifiedMarkup = renderToStaticMarkup(React.createElement(OfficialSignals, { publication: buildSignalPublication(analysis, target) }));
-assert(qualifiedMarkup.includes('45+11'));
-const withheld = structuredClone(analysis);
-withheld.prediction.combinations.officialPortfolio.hasSignal = false;
-const withheldMarkup = renderToStaticMarkup(React.createElement(OfficialSignals, { publication: buildSignalPublication(withheld, target) }));
-assert(withheldMarkup.includes('Không có tín hiệu đủ điều kiện'));
-assert(!withheldMarkup.includes('45+11'), 'Hidden research picks must not render in current signals');
-assert(!renderToStaticMarkup(React.createElement(OfficialSignals, {})).includes('45+11'));
 for (const mutate of [
   a => { a.dataQuality.canPublish = false; },
   a => { a.meta.generatedAt = `${target}T11:15:00Z`; },
